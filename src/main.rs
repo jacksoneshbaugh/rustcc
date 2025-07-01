@@ -6,12 +6,14 @@ Built based on the "Writing a C Compiler" book
 mod compile_error;
 mod lexer;
 mod parser;
+mod assembly_generator;
 
 use std::collections::VecDeque;
 use std::env;
 use std::path::Path;
 use std::process::Command;
 use std::fs;
+use crate::assembly_generator::generate_assembly_ast;
 
 /**
  This is the compiler driver, which controls the compilation process.
@@ -106,10 +108,11 @@ fn main() {
     if flags.contains(&String::from("--parse")) {
         std::process::exit(0);
     }
+    
+    let assembly_ast = generate_assembly_ast(program);
 
-    // let asm = compiler::codegen(parsed);
-
-    println!("Code generation complete.");
+    println!("Completed assembly AST generation.");
+    println!("Assembly AST:\n\n{}", assembly_ast);
 
     if flags.contains(&String::from("--codegen")) {
         std::process::exit(0);
