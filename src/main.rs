@@ -5,7 +5,9 @@ Built based on the "Writing a C Compiler" book
  */
 mod compile_error;
 mod lexer;
+mod parser;
 
+use std::collections::VecDeque;
 use std::env;
 use std::path::Path;
 use std::process::Command;
@@ -63,7 +65,9 @@ fn main() {
         std::process::exit(1);
     }
 
-    // Preprocessing was successful; begin compilation
+    // Preprocessing was successful; begin compilation process
+
+    // 1. LEXER
 
     let tokens = match lexer::lex(parent_dir.join(format!("{}.i", program_name.to_string())).to_str().unwrap()) {
         Ok(t) => t,
@@ -76,17 +80,28 @@ fn main() {
 
     println!("Lexing completed successfully.");
 
-    for token in tokens.iter() {
-        println!("{} {:?}", token.kind, token.value);
+    for token in tokens.clone() {
+        println!("{}", token.kind)
     }
 
     if flags.contains(&String::from("--lex")) {
         std::process::exit(0);
     }
 
-    // let parsed = compiler::parse(lexed);
+    // 2. PARSER
+
+    let mut tokens_deque = VecDeque::from(tokens);
+
+    let program = match parser::parse(&mut tokens_deque) {
+        Ok(program) => program,
+        Err(e) => {
+            eprintln!("Parsing failed.\n{}", e);
+            std::process::exit(1);
+        }
+    };
 
     println!("Parsing complete.");
+    println!("Abstract Syntax Tree: \n\n{}", program);
 
     if flags.contains(&String::from("--parse")) {
         std::process::exit(0);
@@ -102,7 +117,7 @@ fn main() {
 
     // emit_code(asm, program_name.as_ref());
 
-    match fs::remove_file(parent_dir.join("preprocessed.i")) {
+    match fs::remove_file(parent_dir.join(format!("{}.i", program_name.to_string()))) {
         Ok(_) => (),
         Err(e) => eprintln!("Failed to delete preprocessed.i: {}", e),
     }

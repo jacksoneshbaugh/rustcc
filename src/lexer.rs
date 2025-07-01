@@ -18,6 +18,15 @@ pub struct Token {
     pub value: Option<String>
 }
 
+impl Clone for Token {
+    fn clone(&self) -> Self {
+        Token{
+            kind: self.kind,
+            value: self.value.clone()
+        }
+    }
+}
+
 /**
 Implements the lexing phase of the compiler. This takes in the path to a
 file and tokenizes the result, returning either a list of tokens or a CompileError
