@@ -6,14 +6,14 @@ Built based on the "Writing a C Compiler" book
 mod compile_error;
 mod lexer;
 mod parser;
-mod assembly_generator;
+mod assembly;
 
 use std::collections::VecDeque;
 use std::env;
 use std::path::Path;
 use std::process::Command;
 use std::fs;
-use crate::assembly_generator::generate_assembly_ast;
+use crate::assembly::{emit_assembly, generate_assembly_ast};
 
 /**
  This is the compiler driver, which controls the compilation process.
@@ -118,11 +118,11 @@ fn main() {
         std::process::exit(0);
     }
 
-    // emit_code(asm, program_name.as_ref());
+    emit_assembly(assembly_ast, parent_dir.join(format!("{}.s", program_name)).to_str().unwrap().to_string());
 
     match fs::remove_file(parent_dir.join(format!("{}.i", program_name.to_string()))) {
         Ok(_) => (),
-        Err(e) => eprintln!("Failed to delete preprocessed.i: {}", e),
+        Err(e) => eprintln!("Failed to delete intermediate preprocessing file: {}", e),
     }
 
     if flags.contains(&String::from("-S")) {
@@ -131,7 +131,7 @@ fn main() {
     }
 
     let assemble = Command::new("gcc")
-        .arg(parent_dir.join("assembly.s"))
+        .arg(parent_dir.join(format!("{}.s", program_name)))
         .arg("-o")
         .arg(parent_dir.join(program_name.as_ref()))
         .output()
@@ -143,9 +143,9 @@ fn main() {
     }
 
     // clean up when we're done
-    match fs::remove_file(parent_dir.join("assembly.s")) {
+    match fs::remove_file(parent_dir.join(format!("{}.s", program_name))) {
         Ok(_) => (),
-        Err(e) => eprintln!("Failed to delete preprocessed.i: {}", e),
+        Err(e) => eprintln!("Failed to delete assembly code: {}", e),
     }
 
 
