@@ -56,6 +56,18 @@ pub fn lex(file: &str) -> Result<Vec<Token>, CompileError> {
             pattern: Regex::new(r"return\b").unwrap()
         },
         TokenDef{
+            kind: "DECREMENT_OPERATOR",
+            pattern: Regex::new(r"--").unwrap()
+        },
+        TokenDef{
+            kind: "NEGATION_SUBTRACTION_OPERATOR",
+            pattern: Regex::new(r"-").unwrap()
+        },
+        TokenDef{
+            kind: "BITWISE_COMPLIMENT_OPERATOR",
+            pattern: Regex::new(r"~").unwrap()
+        },
+        TokenDef{
             kind: "OPEN_PARENTHESIS",
             pattern: Regex::new(r"\(").unwrap()
         },
