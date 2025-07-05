@@ -1,10 +1,11 @@
 use crate::compile_error::CompileError;
 use crate::lexer::Token;
-use crate::parser::Expression::Constant;
+use crate::parser::Expression::{Constant, Unary};
 use crate::parser::Statement::Return;
 use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Formatter;
+use crate::parser::UnaryOperator::{Compliment, Negate};
 
 /**
 rustcc | parser.rs
@@ -75,7 +76,8 @@ impl PrettyPrint for Statement {
 }
 
 pub enum Expression {
-    Constant(i32)
+    Constant(i32),
+    Unary(UnaryOperator, Box<Expression>),
 }
 
 impl PrettyPrint for Expression {
@@ -84,7 +86,28 @@ impl PrettyPrint for Expression {
         match self {
             Constant(val) => {
                 writeln!(f, "{}Constant({})", indent_str, val)
+            },
+            Unary(op, expr) => {
+                write!(f, "{}Unary(", indent_str)?;
+                op.pretty_print(f, indent + 1)?;
+                writeln!(f, ", ")?;
+                expr.pretty_print(f, indent + 1)?;
+                writeln!(f, "{})", indent_str)
             }
+        }
+    }
+}
+
+pub enum UnaryOperator {
+    Compliment,
+    Negate
+}
+
+impl PrettyPrint for UnaryOperator {
+    fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
+        match self {
+            UnaryOperator::Compliment => write!(f, "Compliment"),
+            UnaryOperator::Negate => write!(f, "Negate")
         }
     }
 }
@@ -198,11 +221,38 @@ Parses an expression. Expects the expression to be the next occurring AST elemen
 Returns the Expression.
 */
 fn parse_expression(tokens: &mut VecDeque<Token>) -> Result<Expression, CompileError> {
-    // <expression> ::= <int>
+    // <expression> ::= <int> | <unop> <int> | "(" <exp> ")"
 
-    match parse_int(tokens) {
-        Ok(i) => Ok(Expression::Constant(i)),
-        Err(e) => Err(e)
+    let token = tokens.front().unwrap();
+
+    match token.kind {
+        "CONSTANT" => Ok(Constant(parse_int(tokens)?)),
+        "BITWISE_COMPLIMENT_OPERATOR" => {
+            // <unary> ::= "~" <exp>
+            tokens.pop_front();
+            Ok(Unary(Compliment, Box::new(parse_expression(tokens)?)))
+        },
+        "NEGATION_SUBTRACTION_OPERATOR" => {
+            // <unary> ::= "-" <exp>
+            tokens.pop_front();
+            Ok(Unary(Negate, Box::new(parse_expression(tokens)?)))
+        },
+        "OPEN_PARENTHESIS" => {
+            // <exp> ::= "(" <exp> ")"
+            
+            tokens.pop_front();
+            
+            let exp = match parse_expression(tokens) {
+                Ok(expr) => expr,
+                Err(e) => return Err(e)
+            };
+
+            match expect("CLOSE_PARENTHESIS", tokens) {
+                Ok(_b) => Ok(exp),
+                Err(e) => return Err(e)
+            }
+        },
+        _ => Err(CompileError::Syntax(String::from(format!("Unexpected token for expression: {}", token.kind))))
     }
 }
 

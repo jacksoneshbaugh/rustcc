@@ -222,5 +222,8 @@ fn process_statement(stmt: Statement) -> Vec<AssemblyInstruction> {
 fn process_expression(expr: Expression) -> (Vec<AssemblyInstruction>, Operand) {
     match expr {
         Expression::Constant(val) => (vec![], Operand::Immediate(val)),
+        Expression::Unary(op, operand) => {
+            (vec![], Operand::Immediate(2)) // TODO: Remove
+        }
     }
 }
