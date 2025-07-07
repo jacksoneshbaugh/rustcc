@@ -112,6 +112,7 @@ impl PrettyPrint for UnaryOperator {
     }
 }
 
+#[derive(Clone)]
 pub struct Identifier {
     pub name: String
 }
@@ -249,7 +250,7 @@ fn parse_expression(tokens: &mut VecDeque<Token>) -> Result<Expression, CompileE
 
             match expect("CLOSE_PARENTHESIS", tokens) {
                 Ok(_b) => Ok(exp),
-                Err(e) => return Err(e)
+                Err(e) => Err(e)
             }
         },
         _ => Err(CompileError::Syntax(String::from(format!("Unexpected token for expression: {}", token.kind))))

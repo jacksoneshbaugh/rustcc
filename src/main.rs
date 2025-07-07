@@ -7,6 +7,7 @@ mod compile_error;
 mod lexer;
 mod parser;
 mod assembly;
+mod tacky;
 
 use std::collections::VecDeque;
 use std::env;
@@ -14,6 +15,7 @@ use std::path::Path;
 use std::process::Command;
 use std::fs;
 use crate::assembly::{emit_assembly, generate_assembly_ast};
+use crate::tacky::tackify;
 
 /**
  This is the compiler driver, which controls the compilation process.
@@ -108,45 +110,59 @@ fn main() {
     if flags.contains(&String::from("--parse")) {
         std::process::exit(0);
     }
+
+    let tacky_prog = match tackify(program) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Parsing failed.\n{}", e);
+            std::process::exit(1);
+        }
+    };
+
+    println!("Tacky Syntax Tree: \n\n{}", tacky_prog);
+
+    if flags.contains(&String::from("--tacky")) {
+        std::process::exit(0);
+    }
     
-    let assembly_ast = generate_assembly_ast(program);
-
-    println!("Completed assembly AST generation.");
-    println!("Assembly AST:\n\n{}", assembly_ast);
-
-    if flags.contains(&String::from("--codegen")) {
-        std::process::exit(0);
-    }
-
-    emit_assembly(assembly_ast, parent_dir.join(format!("{}.s", program_name)).to_str().unwrap().to_string());
-
-    match fs::remove_file(parent_dir.join(format!("{}.i", program_name.to_string()))) {
-        Ok(_) => (),
-        Err(e) => eprintln!("Failed to delete intermediate preprocessing file: {}", e),
-    }
-
-    if flags.contains(&String::from("-S")) {
-        println!("Wrote {}.s", program_name);
-        std::process::exit(0);
-    }
-
-    let assemble = Command::new("gcc")
-        .arg(parent_dir.join(format!("{}.s", program_name)))
-        .arg("-o")
-        .arg(parent_dir.join(program_name.as_ref()))
-        .output()
-        .expect("Failed to run the assembler.");
-
-    if !assemble.status.success() {
-        eprintln!("Error running the assembler.");
-        std::process::exit(1);
-    }
-
-    // clean up when we're done
-    match fs::remove_file(parent_dir.join(format!("{}.s", program_name))) {
-        Ok(_) => (),
-        Err(e) => eprintln!("Failed to delete assembly code: {}", e),
-    }
+    // let assembly_ast = generate_assembly_ast(program);
+    //
+    // println!("Completed assembly AST generation.");
+    // println!("Assembly AST:\n\n{}", assembly_ast);
+    //
+    // if flags.contains(&String::from("--codegen")) {
+    //     std::process::exit(0);
+    // }
+    //
+    // emit_assembly(assembly_ast, parent_dir.join(format!("{}.s", program_name)).to_str().unwrap().to_string());
+    //
+    // match fs::remove_file(parent_dir.join(format!("{}.i", program_name.to_string()))) {
+    //     Ok(_) => (),
+    //     Err(e) => eprintln!("Failed to delete intermediate preprocessing file: {}", e),
+    // }
+    //
+    // if flags.contains(&String::from("-S")) {
+    //     println!("Wrote {}.s", program_name);
+    //     std::process::exit(0);
+    // }
+    //
+    // let assemble = Command::new("gcc")
+    //     .arg(parent_dir.join(format!("{}.s", program_name)))
+    //     .arg("-o")
+    //     .arg(parent_dir.join(program_name.as_ref()))
+    //     .output()
+    //     .expect("Failed to run the assembler.");
+    //
+    // if !assemble.status.success() {
+    //     eprintln!("Error running the assembler.");
+    //     std::process::exit(1);
+    // }
+    //
+    // // clean up when we're done
+    // match fs::remove_file(parent_dir.join(format!("{}.s", program_name))) {
+    //     Ok(_) => (),
+    //     Err(e) => eprintln!("Failed to delete assembly code: {}", e),
+    // }
 
 
 }
