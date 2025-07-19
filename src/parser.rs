@@ -5,6 +5,7 @@ use crate::parser::Statement::Return;
 use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Formatter;
+use crate::assembly::AssemblyGeneration;
 use crate::parser::UnaryOperator::{Compliment, Negate};
 
 /**
@@ -104,10 +105,19 @@ pub enum UnaryOperator {
 }
 
 impl PrettyPrint for UnaryOperator {
-    fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
+    fn pretty_print(&self, f: &mut Formatter, _indent: usize) -> fmt::Result {
         match self {
             UnaryOperator::Compliment => write!(f, "Compliment"),
             UnaryOperator::Negate => write!(f, "Negate")
+        }
+    }
+}
+
+impl AssemblyGeneration for UnaryOperator {
+    fn to_assembly(&self) -> String {
+        match self {
+            Compliment => "notl".into(),
+            Negate => "negl".into()
         }
     }
 }

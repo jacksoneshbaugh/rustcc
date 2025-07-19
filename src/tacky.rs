@@ -12,7 +12,7 @@ use crate::parser::{Expression, Function, Identifier, PrettyPrint, Program, Stat
 use crate::tacky::TACKYValue::Variable;
 
 pub struct TACKYProgram {
-    function: TACKYFunction
+    pub(crate) function: TACKYFunction
 }
 
 impl fmt::Display for TACKYProgram {
@@ -34,8 +34,8 @@ impl PrettyPrint for TACKYProgram {
 
 
 pub struct TACKYFunction {
-    identifier: Identifier,
-    instructions: VecDeque<TACKYInstruction>
+    pub(crate) identifier: Identifier,
+    pub(crate) instructions: VecDeque<TACKYInstruction>
 }
 
 impl PrettyPrint for TACKYFunction {
@@ -148,7 +148,7 @@ fn tackify_expression(parsed_expr: Expression, allocator: &mut TempAllocator) ->
         Expression::Constant(i) => {
             Ok((vec![], TACKYValue::Constant(i)))
         },
-        Expression::Unary(op, inner) => unsafe {
+        Expression::Unary(op, inner) => {
             let result = tackify_expression(*inner, allocator)?;
             let mut instrs = result.0;
             let val = result.1;

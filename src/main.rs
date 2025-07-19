@@ -125,44 +125,44 @@ fn main() {
         std::process::exit(0);
     }
     
-    // let assembly_ast = generate_assembly_ast(program);
-    //
-    // println!("Completed assembly AST generation.");
-    // println!("Assembly AST:\n\n{}", assembly_ast);
-    //
-    // if flags.contains(&String::from("--codegen")) {
-    //     std::process::exit(0);
-    // }
-    //
-    // emit_assembly(assembly_ast, parent_dir.join(format!("{}.s", program_name)).to_str().unwrap().to_string());
-    //
-    // match fs::remove_file(parent_dir.join(format!("{}.i", program_name.to_string()))) {
-    //     Ok(_) => (),
-    //     Err(e) => eprintln!("Failed to delete intermediate preprocessing file: {}", e),
-    // }
-    //
-    // if flags.contains(&String::from("-S")) {
-    //     println!("Wrote {}.s", program_name);
-    //     std::process::exit(0);
-    // }
-    //
-    // let assemble = Command::new("gcc")
-    //     .arg(parent_dir.join(format!("{}.s", program_name)))
-    //     .arg("-o")
-    //     .arg(parent_dir.join(program_name.as_ref()))
-    //     .output()
-    //     .expect("Failed to run the assembler.");
-    //
-    // if !assemble.status.success() {
-    //     eprintln!("Error running the assembler.");
-    //     std::process::exit(1);
-    // }
-    //
-    // // clean up when we're done
-    // match fs::remove_file(parent_dir.join(format!("{}.s", program_name))) {
-    //     Ok(_) => (),
-    //     Err(e) => eprintln!("Failed to delete assembly code: {}", e),
-    // }
+    let assembly_ast = generate_assembly_ast(tacky_prog);
+
+    println!("Completed assembly AST generation.");
+    println!("Assembly AST:\n\n{}", assembly_ast);
+
+    if flags.contains(&String::from("--codegen")) {
+        std::process::exit(0);
+    }
+
+    emit_assembly(assembly_ast, parent_dir.join(format!("{}.s", program_name)).to_str().unwrap().to_string());
+
+    match fs::remove_file(parent_dir.join(format!("{}.i", program_name.to_string()))) {
+        Ok(_) => (),
+        Err(e) => eprintln!("Failed to delete intermediate preprocessing file: {}", e),
+    }
+
+    if flags.contains(&String::from("-S")) {
+        println!("Wrote {}.s", program_name);
+        std::process::exit(0);
+    }
+
+    let assemble = Command::new("gcc")
+        .arg(parent_dir.join(format!("{}.s", program_name)))
+        .arg("-o")
+        .arg(parent_dir.join(program_name.as_ref()))
+        .output()
+        .expect("Failed to run the assembler.");
+
+    if !assemble.status.success() {
+        eprintln!("Error running the assembler.");
+        std::process::exit(1);
+    }
+
+    // clean up when we're done
+    match fs::remove_file(parent_dir.join(format!("{}.s", program_name))) {
+        Ok(_) => (),
+        Err(e) => eprintln!("Failed to delete assembly code: {}", e),
+    }
 
 
 }
