@@ -86,6 +86,22 @@ pub fn lex(file: &str) -> Result<Vec<Token>, CompileError> {
         TokenDef{
             kind: "SEMICOLON",
             pattern: Regex::new(r";").unwrap()
+        },
+        TokenDef{
+            kind: "PLUS",
+            pattern: Regex::new(r"\+").unwrap()
+        },
+        TokenDef{
+            kind: "ASTERISK",
+            pattern: Regex::new(r"\*").unwrap()
+        },
+        TokenDef{
+            kind: "FORWARD_SLASH",
+            pattern: Regex::new(r"/").unwrap()
+        },
+        TokenDef{
+            kind: "PERCENT",
+            pattern: Regex::new(r"%").unwrap()
         }
     ];
 
