@@ -64,8 +64,10 @@ fn main() {
         .expect("Failed to run the preprocessor.");
 
     if !preprocess.status.success() {
-        // Something went wrong while preprocessing
-        eprintln!("Error running the preprocessor.");
+        eprintln!(
+            "Error running the preprocessor.\n{}",
+            String::from_utf8_lossy(&preprocess.stderr)
+        );
         std::process::exit(1);
     }
 
@@ -124,7 +126,7 @@ fn main() {
     if flags.contains(&String::from("--tacky")) {
         std::process::exit(0);
     }
-    
+
     let assembly_ast = generate_assembly_ast(tacky_prog);
 
     println!("Completed assembly AST generation.");
@@ -154,7 +156,10 @@ fn main() {
         .expect("Failed to run the assembler.");
 
     if !assemble.status.success() {
-        eprintln!("Error running the assembler.");
+        eprintln!(
+            "Error running the assembler.\n{}",
+            String::from_utf8_lossy(&assemble.stderr)
+        );
         std::process::exit(1);
     }
 

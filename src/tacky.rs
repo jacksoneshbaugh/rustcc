@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Formatter;
 use crate::compile_error::CompileError;
-use crate::parser::{Expression, Function, Identifier, PrettyPrint, Program, Statement, UnaryOperator};
+use crate::parser::{BinaryOperator, Expression, Function, Identifier, PrettyPrint, Program, Statement, UnaryOperator};
 use crate::tacky::TACKYValue::Variable;
 
 pub struct TACKYProgram {
@@ -52,7 +52,9 @@ impl PrettyPrint for TACKYFunction {
 pub enum TACKYInstruction {
     Return(TACKYValue),
     //                       src        dest
-    Unary(UnaryOperator, TACKYValue, TACKYValue)
+    Unary(UnaryOperator, TACKYValue, TACKYValue),
+    //                        src1        src2        dest
+    Binary(BinaryOperator, TACKYValue, TACKYValue, TACKYValue),
 }
 
 impl PrettyPrint for TACKYInstruction {
@@ -72,7 +74,17 @@ impl PrettyPrint for TACKYInstruction {
                 src.pretty_print(f, indent + 1)?;
                 dest.pretty_print(f, indent + 1)?;
                 writeln!(f, "{})", indent_str)
-
+            },
+            TACKYInstruction::Binary(op, src1, src2, dest) => {
+                write!(f, "{}Binary(", indent_str)?;
+                op.pretty_print(f, indent + 1)?;
+                writeln!(f, ",")?;
+                src1.pretty_print(f, indent + 1)?;
+                writeln!(f, ",")?;
+                src2.pretty_print(f, indent + 1)?;
+                writeln!(f, ",")?;
+                dest.pretty_print(f, indent + 1)?;
+                writeln!(f, "{})", indent_str)
             }
         }
     }
@@ -158,6 +170,19 @@ fn tackify_expression(parsed_expr: Expression, allocator: &mut TempAllocator) ->
             let dest = Variable(Identifier{name: dest_name});
 
             instrs.push(TACKYInstruction::Unary(op, val, dest.clone()));
+            Ok((instrs, dest))
+        },
+        Expression::Binary(op, left, right) => {
+            let v1 = tackify_expression(*left, allocator)?;
+            let v2 = tackify_expression(*right, allocator)?;
+
+            let dst_name = allocator.allocate();
+            let dest = Variable(Identifier{name: dst_name});
+
+            let mut instrs = v1.0;
+            instrs.extend(v2.0);
+            instrs.push(TACKYInstruction::Binary(op, v1.1, v2.1, dest.clone()));
+
             Ok((instrs, dest))
         }
     }

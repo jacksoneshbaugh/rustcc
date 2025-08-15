@@ -1,12 +1,12 @@
 use crate::compile_error::CompileError;
 use crate::lexer::Token;
-use crate::parser::Expression::{Constant, Unary};
+use crate::parser::Expression::{Binary, Constant, Unary};
 use crate::parser::Statement::Return;
 use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Formatter;
 use crate::assembly::AssemblyGeneration;
-use crate::parser::UnaryOperator::{Compliment, Negate};
+use crate::parser::UnaryOperator::{Complement, Negate};
 
 /**
 rustcc | parser.rs
@@ -79,6 +79,7 @@ impl PrettyPrint for Statement {
 pub enum Expression {
     Constant(i32),
     Unary(UnaryOperator, Box<Expression>),
+    Binary(BinaryOperator, Box<Expression>, Box<Expression>),
 }
 
 impl PrettyPrint for Expression {
@@ -94,21 +95,30 @@ impl PrettyPrint for Expression {
                 writeln!(f, ", ")?;
                 expr.pretty_print(f, indent + 1)?;
                 writeln!(f, "{})", indent_str)
+            },
+            Binary(op, left, right) => {
+                write!(f, "{}Binary(", indent_str)?;
+                op.pretty_print(f, indent + 1)?;
+                write!(f, ", ")?;
+                left.pretty_print(f, indent + 1)?;
+                write!(f, ", ")?;
+                right.pretty_print(f, indent + 1)?;
+                writeln!(f, "{})", indent_str)
             }
         }
     }
 }
 
 pub enum UnaryOperator {
-    Compliment,
+    Complement,
     Negate
 }
 
 impl PrettyPrint for UnaryOperator {
     fn pretty_print(&self, f: &mut Formatter, _indent: usize) -> fmt::Result {
         match self {
-            UnaryOperator::Compliment => write!(f, "Compliment"),
-            UnaryOperator::Negate => write!(f, "Negate")
+            Complement => write!(f, "Complement"),
+            Negate => write!(f, "Negate")
         }
     }
 }
@@ -116,8 +126,28 @@ impl PrettyPrint for UnaryOperator {
 impl AssemblyGeneration for UnaryOperator {
     fn to_assembly(&self) -> String {
         match self {
-            Compliment => "notl".into(),
+            Complement => "notl".into(),
             Negate => "negl".into()
+        }
+    }
+}
+
+pub enum BinaryOperator {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Remainder
+}
+
+impl PrettyPrint for BinaryOperator {
+    fn pretty_print(&self, f: &mut Formatter, _indent: usize) -> fmt::Result {
+        match self {
+            BinaryOperator::Add => write!(f, "Add"),
+            BinaryOperator::Subtract => write!(f, "Subtract"),
+            BinaryOperator::Multiply => write!(f, "Multiply"),
+            BinaryOperator::Divide => write!(f, "Divide"),
+            BinaryOperator::Remainder => write!(f, "Remainder")
         }
     }
 }
@@ -216,7 +246,7 @@ fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Statement, CompileErr
         Err(e) => return Err(e)
     }
 
-    let expression = match parse_expression(tokens) {
+    let expression = match parse_expression(tokens, 0) {
         Ok(e) => e,
         Err(e) => return Err(e)
     };
@@ -228,42 +258,106 @@ fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Statement, CompileErr
 }
 
 /**
-Parses an expression. Expects the expression to be the next occurring AST element in the list.
+Parses an expression. Expects the expression to be the next occuring AST element in the list. Returns the Expression.
+*/
+fn parse_expression(tokens: &mut VecDeque<Token>, min_prec: i32) -> Result<Expression, CompileError> {
+    // <expression> ::= <factor> | <exp> <binop> <exp>
+    let mut left = parse_factor(tokens)?;
+
+    loop {
+        let proceed = match tokens.front() {
+            Some(t) => precedence(t).map_or(false, |p| p >= min_prec),
+            None => false,
+        };
+
+        if !proceed { break; }
+
+        // Capture operator precedence in a short scope so the immutable borrow ends before mutation
+        let op_prec: i32 = {
+            let t = tokens.front().ok_or_else(|| CompileError::Syntax("Unexpected end of tokens.".to_string()))?;
+            precedence(t).expect("internal: expected an operator token with precedence")
+        };
+
+        let operator = parse_binop(tokens)?;
+        let right = parse_expression(tokens, op_prec + 1)?;
+        left = Binary(operator, Box::new(left), Box::new(right));
+    }
+
+    Ok(left)
+}
+
+fn is_binop(token: &Token) -> bool {
+    precedence(token).is_some()
+}
+
+fn precedence(token: &Token) -> Option<i32> {
+    match token.kind {
+        "PLUS" => Some(45),
+        "NEGATION_SUBTRACTION_OPERATOR" => Some(45),
+        "ASTERISK" => Some(50),
+        "FORWARD_SLASH" => Some(50),
+        "PERCENT" => Some(50),
+        _ => None
+    }
+}
+
+fn parse_binop(tokens: &mut VecDeque<Token>) -> Result<BinaryOperator, CompileError> {
+    match tokens.pop_front() {
+        Some(Token{ kind: "PLUS", value: _ }) => {
+            Ok(BinaryOperator::Add)
+        },
+        Some(Token{ kind: "NEGATION_SUBTRACTION_OPERATOR", value: _ }) => {
+            Ok(BinaryOperator::Subtract)
+        },
+        Some(Token{ kind: "ASTERISK", value: _ }) => {
+            Ok(BinaryOperator::Multiply)
+        },
+        Some(Token{ kind: "FORWARD_SLASH", value: _ }) => {
+            Ok(BinaryOperator::Divide)
+        },
+        Some(Token{ kind: "PERCENT", value: _ }) => {
+            Ok(BinaryOperator::Remainder)
+        },
+        Some(Token{ kind, value: _ }) => Err(CompileError::Syntax(String::from(format!("Invalid token ({}); expected binary operator.", kind)))),
+        _ => Err(CompileError::Syntax(String::from("Unexpected end of tokens.")))
+    }
+}
+
+/**
+Parses a factor expression. Expects the factor to be the next occurring AST element in the list.
 Returns the Expression.
 */
-fn parse_expression(tokens: &mut VecDeque<Token>) -> Result<Expression, CompileError> {
-    // <expression> ::= <int> | <unop> <int> | "(" <exp> ")"
+fn parse_factor(tokens: &mut VecDeque<Token>) -> Result<Expression, CompileError> {
+    // <factor> ::= <int> | <unop> <int> | "(" <exp> ")"
 
-    let token = tokens.front().unwrap();
+    // Peek at the next token's kind in a short scope to avoid borrow conflicts
+    let next_kind = {
+        let t = tokens.front().ok_or_else(|| CompileError::Syntax("Unexpected end of tokens.".to_string()))?;
+        t.kind
+    };
 
-    match token.kind {
+    match next_kind {
         "CONSTANT" => Ok(Constant(parse_int(tokens)?)),
-        "BITWISE_COMPLIMENT_OPERATOR" => {
-            // <unary> ::= "~" <exp>
+        "BITWISE_COMPLEMENT_OPERATOR" => {
             tokens.pop_front();
-            Ok(Unary(Compliment, Box::new(parse_expression(tokens)?)))
+            Ok(Unary(Complement, Box::new(parse_factor(tokens)?)))
         },
         "NEGATION_SUBTRACTION_OPERATOR" => {
-            // <unary> ::= "-" <exp>
             tokens.pop_front();
-            Ok(Unary(Negate, Box::new(parse_expression(tokens)?)))
+            Ok(Unary(Negate, Box::new(parse_factor(tokens)?)))
         },
         "OPEN_PARENTHESIS" => {
-            // <exp> ::= "(" <exp> ")"
-            
             tokens.pop_front();
-            
-            let exp = match parse_expression(tokens) {
+            let exp = match parse_expression(tokens, 0) {
                 Ok(expr) => expr,
                 Err(e) => return Err(e)
             };
-
             match expect("CLOSE_PARENTHESIS", tokens) {
                 Ok(_b) => Ok(exp),
                 Err(e) => Err(e)
             }
         },
-        _ => Err(CompileError::Syntax(String::from(format!("Unexpected token for expression: {}", token.kind))))
+        _ => Err(CompileError::Syntax(String::from(format!("Unexpected token for expression: {}", next_kind))))
     }
 }
 
@@ -280,7 +374,7 @@ fn parse_int(tokens: &mut VecDeque<Token>) -> Result<i32, CompileError> {
 
     match token.value.unwrap().parse::<i32>() {
         Ok(i) => Ok(i),
-        Err(_e) => return Err(CompileError::Syntax("Expected integer constant, but failed to parse.".parse().unwrap()))
+        Err(_e) => return Err(CompileError::Syntax("Expected integer constant, but failed to parse.".to_string()))
     }
 
 }

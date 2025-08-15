@@ -1,12 +1,13 @@
-use crate::assembly::AssemblyInstruction::{AllocateStack, Mov, Ret, Unary};
+use crate::assembly::AssemblyInstruction::{AllocateStack, Binary, Mov, Ret, Unary};
 use crate::assembly::Operand::{PseudoRegister, Register, Stack};
-use crate::parser::{Identifier, PrettyPrint, UnaryOperator};
+use crate::parser::{BinaryOperator, Identifier, PrettyPrint, UnaryOperator};
 use crate::tacky::{TACKYFunction, TACKYInstruction, TACKYProgram, TACKYValue};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::fmt::Formatter;
 use std::fs::File;
 use std::io::Write;
+use crate::assembly::RegisterIdentifier::AX;
 
 /**
 rustcc | assembly.rs
@@ -96,30 +97,48 @@ pub enum AssemblyInstruction {
     Mov(Operand, Operand),
     Unary(UnaryOperator, Operand),
     AllocateStack(i32), // subq $n, %rsp
-    Ret
+    Ret,
+    Binary(BinaryOperator, Operand, Operand),
+    Idiv(Operand),
+    Cdq
 }
 
 impl PrettyPrint for AssemblyInstruction {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
         let indent_str = "  ".repeat(indent);
         match self {
-            AssemblyInstruction::Mov(op1, op2) => {
+            Mov(op1, op2) => {
                 writeln!(f, "{}Mov(", indent_str)?;
                 op1.pretty_print(f, indent + 1)?;
                 op2.pretty_print(f, indent + 1)?;
                 writeln!(f, "{})", indent_str)
             },
-            AssemblyInstruction::Unary(op, operand) => {
+            Unary(op, operand) => {
                 writeln!(f, "{}Unary(", indent_str)?;
                 op.pretty_print(f, indent + 1)?;
                 operand.pretty_print(f, indent + 1)?;
                 writeln!(f, "{})", indent_str)
             },
-            AssemblyInstruction::AllocateStack(stack) => {
+            AllocateStack(stack) => {
                 writeln!(f, "{}AllocateStack({})", indent_str, stack)
-            }
+            },
             Ret => {
                 writeln!(f, "{}Ret", indent_str)
+            },
+            AssemblyInstruction::Binary(op, left, right) => {
+                writeln!(f, "{}Binary(", indent_str)?;
+                op.pretty_print(f, indent + 1)?;
+                left.pretty_print(f, indent + 1)?;
+                right.pretty_print(f, indent + 1)?;
+                writeln!(f, "{})", indent_str)
+            },
+            AssemblyInstruction::Idiv(op) => {
+                writeln!(f, "{}Idiv(", indent_str)?;
+                op.pretty_print(f, indent + 1)?;
+                writeln!(f, "{})", indent_str)
+            },
+            AssemblyInstruction::Cdq => {
+                writeln!(f, "{}Cdq()", indent_str)
             }
         }
     }
@@ -142,6 +161,22 @@ impl AssemblyGeneration for AssemblyInstruction {
             },
             AllocateStack(bytes) => {
                 format!("subq ${}, %rsp", bytes)
+            },
+            AssemblyInstruction::Binary(op, left, right) => {
+                let mnem = match op {
+                    BinaryOperator::Add => "addl",
+                    BinaryOperator::Subtract => "subl",
+                    BinaryOperator::Multiply => "imull",
+                    BinaryOperator::Divide => unreachable!("Divide handled via Idiv lowering"),
+                    BinaryOperator::Remainder => unreachable!("Remainder handled via Idiv lowering"),
+                };
+                format!("{} {}, {}", mnem, left.to_assembly(), right.to_assembly())
+            },
+            AssemblyInstruction::Idiv(operand) => {
+                format!("idivl {}", operand.to_assembly())
+            },
+            AssemblyInstruction::Cdq => {
+                "cdq".to_string()
             }
         }
     }
@@ -201,14 +236,18 @@ impl AssemblyGeneration for Operand {
 #[derive(Clone)]
 pub enum RegisterIdentifier {
     AX,
-    R10
+    DX,
+    R10,
+    R11
 }
 
 impl PrettyPrint for RegisterIdentifier {
     fn pretty_print(&self, f: &mut Formatter, _indent: usize) -> fmt::Result {
         match self {
             RegisterIdentifier::AX => write!(f, "AX"),
-            RegisterIdentifier::R10 => write!(f, "R10")
+            RegisterIdentifier::DX => write!(f, "DX"),
+            RegisterIdentifier::R10 => write!(f, "R10"),
+            RegisterIdentifier::R11 => write!(f, "R11"),
         }
     }
 }
@@ -217,7 +256,9 @@ impl AssemblyGeneration for RegisterIdentifier {
     fn to_assembly(&self) -> String {
         match self {
             RegisterIdentifier::AX => "eax".to_string(),
-            RegisterIdentifier::R10 => "r10d".to_string()
+            RegisterIdentifier::DX => "edx".to_string(),
+            RegisterIdentifier::R10 => "r10d".to_string(),
+            RegisterIdentifier::R11 => "r11d".to_string(),
         }
     }
 }
@@ -269,6 +310,15 @@ pub fn replace_pseudoregisters(program: AssemblyProgram) -> (i32, AssemblyProgra
                 let new_operand = replace_operand(operand, &mut map, &mut num_vars);
                 Unary(op, new_operand)
             },
+            AssemblyInstruction::Binary(op, left, right) => {
+                let new_left = replace_operand(left, &mut map, &mut num_vars);
+                let new_right = replace_operand(right, &mut map, &mut num_vars);
+                AssemblyInstruction::Binary(op, new_left, new_right)
+            },
+            AssemblyInstruction::Idiv(operand) => {
+                let new_operand = replace_operand(operand, &mut map, &mut num_vars);
+                AssemblyInstruction::Idiv(new_operand)
+            },
             other => other,
         };
         new_instructions.push_back(transformed);
@@ -308,12 +358,34 @@ pub fn polish_program(program: AssemblyProgram, stack_bytes: i32) -> AssemblyPro
     // 1. Insert AllocateStack()
     new_instructions.push_back(AllocateStack(stack_bytes));
 
-    // 2. Fix any invalid Mov() instructions
+    // 2. Fix any invalid Mov() and Binary() instructions
     for instr in program.function_definition.instructions {
         match instr {
             Mov(Stack(s1), Stack(s2)) => {
                 new_instructions.push_back(Mov(Stack(s1), Register(RegisterIdentifier::R10)));
                 new_instructions.push_back(Mov(Register(RegisterIdentifier::R10), Stack(s2)));
+            },
+            // Use r10d for Add and Subtract memory-to-memory
+            AssemblyInstruction::Binary(op @ (BinaryOperator::Add | BinaryOperator::Subtract), Stack(s_src), Stack(s_dst)) => {
+                // x86 forbids memory-to-memory arithmetic; use r10d as a temp for add/sub
+                new_instructions.push_back(Mov(Stack(s_src), Register(RegisterIdentifier::R10)));
+                new_instructions.push_back(AssemblyInstruction::Binary(op, Register(RegisterIdentifier::R10), Stack(s_dst)));
+            },
+            // Use r11d when the destination is memory (any left operand)
+            AssemblyInstruction::Binary(BinaryOperator::Multiply, left, Stack(s_dst)) => {
+                // Move destination to a temp register, multiply there, then store back
+                new_instructions.push_back(Mov(Stack(s_dst), Register(RegisterIdentifier::R11)));
+                match left {
+                    // GAS two-operand IMUL doesn't accept an immediate; move imm to a register first
+                    Operand::Immediate(imm) => {
+                        new_instructions.push_back(Mov(Operand::Immediate(imm), Register(RegisterIdentifier::R10)));
+                        new_instructions.push_back(AssemblyInstruction::Binary(BinaryOperator::Multiply, Register(RegisterIdentifier::R10), Register(RegisterIdentifier::R11)));
+                    }
+                    _ => {
+                        new_instructions.push_back(AssemblyInstruction::Binary(BinaryOperator::Multiply, left, Register(RegisterIdentifier::R11)));
+                    }
+                }
+                new_instructions.push_back(Mov(Register(RegisterIdentifier::R11), Stack(s_dst)));
             },
             Mov(src, dest) => new_instructions.push_back(Mov(src, dest)),
             other => new_instructions.push_back(other)
@@ -357,6 +429,46 @@ fn process_instructions(instrs: VecDeque<TACKYInstruction>) -> Vec<AssemblyInstr
                 let destination = process_value(dest);
                 instructions.push(Mov(process_value(src), destination.clone()));
                 instructions.push(Unary(un_op, destination));
+            },
+
+            TACKYInstruction::Binary(BinaryOperator::Divide, src1, src2, dest) => {
+                let destination = process_value(dest);
+                instructions.push(Mov(process_value(src1), Register(AX)));
+                instructions.push(AssemblyInstruction::Cdq);
+                let divisor = process_value(src2);
+                match divisor {
+                    Operand::Immediate(imm) => {
+                        instructions.push(Mov(Operand::Immediate(imm), Register(RegisterIdentifier::R10)));
+                        instructions.push(AssemblyInstruction::Idiv(Register(RegisterIdentifier::R10)));
+                    }
+                    _ => {
+                        instructions.push(AssemblyInstruction::Idiv(divisor));
+                    }
+                }
+                instructions.push(Mov(Register(AX), destination));
+            },
+
+            TACKYInstruction::Binary(BinaryOperator::Remainder, src1, src2, dest) => {
+                let destination = process_value(dest);
+                instructions.push(Mov(process_value(src1), Register(AX)));
+                instructions.push(AssemblyInstruction::Cdq);
+                let divisor = process_value(src2);
+                match divisor {
+                    Operand::Immediate(imm) => {
+                        instructions.push(Mov(Operand::Immediate(imm), Register(RegisterIdentifier::R10)));
+                        instructions.push(AssemblyInstruction::Idiv(Register(RegisterIdentifier::R10)));
+                    }
+                    _ => {
+                        instructions.push(AssemblyInstruction::Idiv(divisor));
+                    }
+                }
+                instructions.push(Mov(Register(RegisterIdentifier::DX), destination));
+            },
+
+            TACKYInstruction::Binary(bin_op, src1, src2, dest) => {
+                let destination = process_value(dest);
+                instructions.push(Mov(process_value(src1), destination.clone()));
+                instructions.push(Binary(bin_op, process_value(src2), destination));
             }
         }
     }

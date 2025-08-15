@@ -64,7 +64,7 @@ pub fn lex(file: &str) -> Result<Vec<Token>, CompileError> {
             pattern: Regex::new(r"-").unwrap()
         },
         TokenDef{
-            kind: "BITWISE_COMPLIMENT_OPERATOR",
+            kind: "BITWISE_COMPLEMENT_OPERATOR",
             pattern: Regex::new(r"~").unwrap()
         },
         TokenDef{
