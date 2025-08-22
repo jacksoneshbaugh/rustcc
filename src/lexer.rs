@@ -102,7 +102,31 @@ pub fn lex(file: &str) -> Result<Vec<Token>, CompileError> {
         TokenDef{
             kind: "PERCENT",
             pattern: Regex::new(r"%").unwrap()
+        },
+        // TODO: LOGICAL_AND
+        TokenDef{
+            kind: "BITWISE_AND",
+            pattern: Regex::new(r"&").unwrap()
+        },
+        // TODO: LOGICAL_OR
+        TokenDef{
+            kind: "BITWISE_OR",
+            pattern: Regex::new(r"\|").unwrap()
+        },
+        TokenDef{
+            kind: "XOR",
+            pattern: Regex::new(r"\^").unwrap()
+        },
+        TokenDef{
+            kind: "LEFT_SHIFT",
+            pattern: Regex::new(r"<<").unwrap()
+        },
+        // TODO: LESS_THAN
+        TokenDef{
+            kind: "RIGHT_SHIFT",
+            pattern: Regex::new(r">>").unwrap()
         }
+        // TODO: GREATER_THAN
     ];
 
     // Read from the file

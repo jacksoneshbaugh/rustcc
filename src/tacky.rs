@@ -22,7 +22,7 @@ impl fmt::Display for TACKYProgram {
 }
 
 impl PrettyPrint for TACKYProgram {
-    fn pretty_print(&self, f: &mut fmt::Formatter, indent: usize) -> Result<(), std::fmt::Error> {
+    fn pretty_print(&self, f: &mut Formatter, indent: usize) -> Result<(), fmt::Error> {
 
         let indent_str = "  ".repeat(indent);
 
@@ -39,13 +39,13 @@ pub struct TACKYFunction {
 }
 
 impl PrettyPrint for TACKYFunction {
-    fn pretty_print(&self, f: &mut fmt::Formatter, indent: usize) -> Result<(), std::fmt::Error> {
+    fn pretty_print(&self, f: &mut Formatter, indent: usize) -> Result<(), fmt::Error> {
         let indent_str = "  ".repeat(indent);
         writeln!(f, "{}Function({},", indent_str, self.identifier.name)?;
         for instruction in &self.instructions {
             instruction.pretty_print(f, indent + 1)?;
         }
-        writeln!(f, "{}", indent_str)
+        writeln!(f, "{})", indent_str)
     }
 }
 
@@ -58,7 +58,7 @@ pub enum TACKYInstruction {
 }
 
 impl PrettyPrint for TACKYInstruction {
-    fn pretty_print(&self, f: &mut fmt::Formatter, indent: usize) -> Result<(), std::fmt::Error> {
+    fn pretty_print(&self, f: &mut Formatter, indent: usize) -> Result<(), fmt::Error> {
         let indent_str = "  ".repeat(indent);
 
         match self {
@@ -72,6 +72,7 @@ impl PrettyPrint for TACKYInstruction {
                 op.pretty_print(f, indent + 1)?;
                 writeln!(f, ",")?;
                 src.pretty_print(f, indent + 1)?;
+                writeln!(f, ",")?;
                 dest.pretty_print(f, indent + 1)?;
                 writeln!(f, "{})", indent_str)
             },

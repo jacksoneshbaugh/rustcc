@@ -137,7 +137,12 @@ pub enum BinaryOperator {
     Subtract,
     Multiply,
     Divide,
-    Remainder
+    Remainder,
+    BitwiseAnd,
+    BitwiseOr,
+    Xor,
+    LeftShift,
+    RightShift
 }
 
 impl PrettyPrint for BinaryOperator {
@@ -147,7 +152,12 @@ impl PrettyPrint for BinaryOperator {
             BinaryOperator::Subtract => write!(f, "Subtract"),
             BinaryOperator::Multiply => write!(f, "Multiply"),
             BinaryOperator::Divide => write!(f, "Divide"),
-            BinaryOperator::Remainder => write!(f, "Remainder")
+            BinaryOperator::Remainder => write!(f, "Remainder"),
+            BinaryOperator::BitwiseAnd => write!(f, "BitwiseAnd"),
+            BinaryOperator::BitwiseOr => write!(f, "BitwiseOr"),
+            BinaryOperator::Xor => write!(f, "Xor"),
+            BinaryOperator::LeftShift => write!(f, "LeftShift"),
+            BinaryOperator::RightShift => write!(f, "RightShift")
         }
     }
 }
@@ -297,6 +307,11 @@ fn precedence(token: &Token) -> Option<i32> {
         "ASTERISK" => Some(50),
         "FORWARD_SLASH" => Some(50),
         "PERCENT" => Some(50),
+        "LEFT_SHIFT" => Some(40),
+        "RIGHT_SHIFT" => Some(40),
+        "BITWISE_AND" => Some(35),
+        "BITWISE_OR" => Some(25),
+        "XOR" => Some(30),
         _ => None
     }
 }
@@ -318,6 +333,21 @@ fn parse_binop(tokens: &mut VecDeque<Token>) -> Result<BinaryOperator, CompileEr
         Some(Token{ kind: "PERCENT", value: _ }) => {
             Ok(BinaryOperator::Remainder)
         },
+        Some(Token{ kind: "LEFT_SHIFT", value: _ }) => {
+            Ok(BinaryOperator::LeftShift)
+        },
+        Some(Token{ kind: "RIGHT_SHIFT", value: _ }) => {
+            Ok(BinaryOperator::RightShift)
+        },
+        Some(Token{ kind: "BITWISE_AND", value: _ }) => {
+            Ok(BinaryOperator::BitwiseAnd)
+        },
+        Some(Token{ kind: "BITWISE_OR", value: _ }) => {
+            Ok(BinaryOperator::BitwiseOr)
+        },
+        Some(Token{ kind: "XOR", value: _ }) => {
+            Ok(BinaryOperator::Xor)
+        }
         Some(Token{ kind, value: _ }) => Err(CompileError::Syntax(String::from(format!("Invalid token ({}); expected binary operator.", kind)))),
         _ => Err(CompileError::Syntax(String::from("Unexpected end of tokens.")))
     }

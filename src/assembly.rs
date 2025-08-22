@@ -169,8 +169,18 @@ impl AssemblyGeneration for AssemblyInstruction {
                     BinaryOperator::Multiply => "imull",
                     BinaryOperator::Divide => unreachable!("Divide handled via Idiv lowering"),
                     BinaryOperator::Remainder => unreachable!("Remainder handled via Idiv lowering"),
+                    BinaryOperator::BitwiseAnd => "andl",
+                    BinaryOperator::BitwiseOr => "orl",
+                    BinaryOperator::Xor => "xorl",
+                    BinaryOperator::LeftShift => "shll",
+                    BinaryOperator::RightShift => "sarl",
                 };
-                format!("{} {}, {}", mnem, left.to_assembly(), right.to_assembly())
+                let left_str = match (op, left) {
+                    (BinaryOperator::LeftShift,  Operand::Register(RegisterIdentifier::CX)) |
+                    (BinaryOperator::RightShift, Operand::Register(RegisterIdentifier::CX)) => "%cl".to_string(),
+                    _ => left.to_assembly(),
+                };
+                format!("{} {}, {}", mnem, left_str, right.to_assembly())
             },
             AssemblyInstruction::Idiv(operand) => {
                 format!("idivl {}", operand.to_assembly())
@@ -237,6 +247,7 @@ impl AssemblyGeneration for Operand {
 pub enum RegisterIdentifier {
     AX,
     DX,
+    CX,
     R10,
     R11
 }
@@ -246,6 +257,7 @@ impl PrettyPrint for RegisterIdentifier {
         match self {
             RegisterIdentifier::AX => write!(f, "AX"),
             RegisterIdentifier::DX => write!(f, "DX"),
+            RegisterIdentifier::CX => write!(f, "CX"),
             RegisterIdentifier::R10 => write!(f, "R10"),
             RegisterIdentifier::R11 => write!(f, "R11"),
         }
@@ -257,6 +269,7 @@ impl AssemblyGeneration for RegisterIdentifier {
         match self {
             RegisterIdentifier::AX => "eax".to_string(),
             RegisterIdentifier::DX => "edx".to_string(),
+            RegisterIdentifier::CX => "ecx".to_string(),
             RegisterIdentifier::R10 => "r10d".to_string(),
             RegisterIdentifier::R11 => "r11d".to_string(),
         }
@@ -361,6 +374,23 @@ pub fn polish_program(program: AssemblyProgram, stack_bytes: i32) -> AssemblyPro
     // 2. Fix any invalid Mov() and Binary() instructions
     for instr in program.function_definition.instructions {
         match instr {
+            // Shift with memory count: move count to ecx, then use %cl
+            AssemblyInstruction::Binary(op @ (BinaryOperator::LeftShift | BinaryOperator::RightShift), Stack(s_src), dest) => {
+                new_instructions.push_back(Mov(Stack(s_src), Register(RegisterIdentifier::CX)));
+                new_instructions.push_back(AssemblyInstruction::Binary(op, Register(RegisterIdentifier::CX), dest));
+            },
+            // Shift with non-CX register count: move to ecx, then use %cl
+            AssemblyInstruction::Binary(op @ (BinaryOperator::LeftShift | BinaryOperator::RightShift), Register(reg), dest) => {
+                match reg {
+                    RegisterIdentifier::CX => {
+                        new_instructions.push_back(AssemblyInstruction::Binary(op, Register(RegisterIdentifier::CX), dest));
+                    }
+                    _ => {
+                        new_instructions.push_back(Mov(Register(reg), Register(RegisterIdentifier::CX)));
+                        new_instructions.push_back(AssemblyInstruction::Binary(op, Register(RegisterIdentifier::CX), dest));
+                    }
+                }
+            },
             Mov(Stack(s1), Stack(s2)) => {
                 new_instructions.push_back(Mov(Stack(s1), Register(RegisterIdentifier::R10)));
                 new_instructions.push_back(Mov(Register(RegisterIdentifier::R10), Stack(s2)));
@@ -368,6 +398,11 @@ pub fn polish_program(program: AssemblyProgram, stack_bytes: i32) -> AssemblyPro
             // Use r10d for Add and Subtract memory-to-memory
             AssemblyInstruction::Binary(op @ (BinaryOperator::Add | BinaryOperator::Subtract), Stack(s_src), Stack(s_dst)) => {
                 // x86 forbids memory-to-memory arithmetic; use r10d as a temp for add/sub
+                new_instructions.push_back(Mov(Stack(s_src), Register(RegisterIdentifier::R10)));
+                new_instructions.push_back(AssemblyInstruction::Binary(op, Register(RegisterIdentifier::R10), Stack(s_dst)));
+            },
+            // Use r10d for bitwise AND/OR/XOR when both operands are memory
+            AssemblyInstruction::Binary(op @ (BinaryOperator::BitwiseAnd | BinaryOperator::BitwiseOr | BinaryOperator::Xor), Stack(s_src), Stack(s_dst)) => {
                 new_instructions.push_back(Mov(Stack(s_src), Register(RegisterIdentifier::R10)));
                 new_instructions.push_back(AssemblyInstruction::Binary(op, Register(RegisterIdentifier::R10), Stack(s_dst)));
             },
