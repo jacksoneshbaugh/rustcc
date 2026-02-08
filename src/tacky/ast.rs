@@ -1,15 +1,13 @@
-/*
-rustcc | tacky.rs
-Contains logic for generating TACKY Three Address Code.
-Jackson Eshbaugh
-Written while following "Writing a C Compiler" by Nora Sandler
- */
-use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Formatter;
-use crate::compile_error::CompileError;
-use crate::parser::{BinaryOperator, Expression, Function, Identifier, PrettyPrint, Program, Statement, UnaryOperator};
-use crate::tacky::TACKYValue::Variable;
+use crate::parser::{BinaryOperator, Identifier, PrettyPrint, UnaryOperator};
+
+/**
+rustcc | tacky/ast.rs
+Defines structures used to construct the TACKY AST.
+Jackson Eshbaugh
+Written while following "Writing a C Compiler" by Nora Sandler
+*/
 
 pub struct TACKYProgram {
     pub(crate) function: TACKYFunction
@@ -35,7 +33,7 @@ impl PrettyPrint for TACKYProgram {
 
 pub struct TACKYFunction {
     pub(crate) identifier: Identifier,
-    pub(crate) instructions: VecDeque<TACKYInstruction>
+    pub(crate) instructions: Vec<TACKYInstruction>
 }
 
 impl PrettyPrint for TACKYFunction {
@@ -49,12 +47,34 @@ impl PrettyPrint for TACKYFunction {
     }
 }
 
+/// Restrict the destinations to be locations (and not immediates)
+#[derive(Clone)]
+pub struct TACKYPlace(pub Identifier);
+
+impl PrettyPrint for TACKYPlace {
+    fn pretty_print(&self, f: &mut Formatter, indent: usize) -> Result<(), fmt::Error> {
+        let indent_str = "  ".repeat(indent);
+        writeln!(f, "{}Place(", indent_str)?;
+        self.0.pretty_print(f, indent + 1)?;
+        writeln!(f, "{})", indent_str)
+    }
+}
 pub enum TACKYInstruction {
     Return(TACKYValue),
     //                       src        dest
-    Unary(UnaryOperator, TACKYValue, TACKYValue),
+    Unary(UnaryOperator, TACKYValue, TACKYPlace),
     //                        src1        src2        dest
-    Binary(BinaryOperator, TACKYValue, TACKYValue, TACKYValue),
+    Binary(BinaryOperator, TACKYValue, TACKYValue, TACKYPlace),
+    //       src        dest
+    Copy(TACKYValue, TACKYPlace),
+    //     target
+    Jump(Identifier),
+    //         condition     target
+    JumpIfZero(TACKYValue, Identifier),
+    //             condition    target
+    JumpIfNotZero(TACKYValue, Identifier),
+
+    Label(Identifier),
 }
 
 impl PrettyPrint for TACKYInstruction {
@@ -75,7 +95,7 @@ impl PrettyPrint for TACKYInstruction {
                 writeln!(f, ",")?;
                 dest.pretty_print(f, indent + 1)?;
                 writeln!(f, "{})", indent_str)
-            },
+            }
             TACKYInstruction::Binary(op, src1, src2, dest) => {
                 write!(f, "{}Binary(", indent_str)?;
                 op.pretty_print(f, indent + 1)?;
@@ -86,6 +106,38 @@ impl PrettyPrint for TACKYInstruction {
                 writeln!(f, ",")?;
                 dest.pretty_print(f, indent + 1)?;
                 writeln!(f, "{})", indent_str)
+            }
+
+            TACKYInstruction::Copy(src, dest) => {
+                writeln!(f, "{}Copy(", indent_str)?;
+                src.pretty_print(f, indent + 1)?;
+                writeln!(f, ",")?;
+                dest.pretty_print(f, indent + 1)?;
+                writeln!(f, "{})", indent_str)
+            }
+
+            TACKYInstruction::Jump(target) => {
+                writeln!(f, "{}Jump({})", indent_str, target.name)
+            }
+
+            TACKYInstruction::JumpIfZero(cond, target) => {
+                writeln!(f, "{}JumpIfZero(", indent_str)?;
+                cond.pretty_print(f, indent + 1)?;
+                writeln!(f, "{},", indent_str)?;
+                writeln!(f, "{}  Target({})", indent_str, target.name)?;
+                writeln!(f, "{})", indent_str)
+            }
+
+            TACKYInstruction::JumpIfNotZero(cond, target) => {
+                writeln!(f, "{}JumpIfNotZero(", indent_str)?;
+                cond.pretty_print(f, indent + 1)?;
+                writeln!(f, "{},", indent_str)?;
+                writeln!(f, "{}  Target({})", indent_str, target.name)?;
+                writeln!(f, "{})", indent_str)
+            }
+
+            TACKYInstruction::Label(id) => {
+                writeln!(f, "{}Label({})", indent_str, id.name)
             }
         }
     }
@@ -105,87 +157,9 @@ impl PrettyPrint for TACKYValue {
             TACKYValue::Constant(val) => {
                 writeln!(f, "{}Constant({})", indent_str, val)
             },
-            Variable(name) => {
+            TACKYValue::Variable(name) => {
                 writeln!(f, "{}Variable({})", indent_str, name.name)
             }
         }
     }
 }
-
-
-pub struct TempAllocator {
-    counter: i32,
-}
-
-impl TempAllocator {
-    pub fn new() -> Self {
-        TempAllocator { counter: 0 }
-    }
-
-    pub fn allocate(&mut self) -> String {
-        let name = self.counter.to_string();
-        self.counter += 1;
-        name
-    }
-}
-
-
-pub fn tackify(ast: Program) -> Result<TACKYProgram, CompileError> {
-    let mut allocator = TempAllocator::new();
-    Ok(TACKYProgram {
-      function: tackify_function(ast.function_definition, &mut allocator)?,
-    })
-}
-
-fn tackify_function(parsed_fn: Function, allocator: &mut TempAllocator) -> Result<TACKYFunction, CompileError> {
-    Ok(TACKYFunction{
-        identifier: parsed_fn.identifier,
-        instructions: VecDeque::from(tackify_statement(parsed_fn.body, allocator)?)
-    })
-}
-
-fn tackify_statement(parsed_stmt: Statement, allocator: &mut TempAllocator) -> Result<Vec<TACKYInstruction>, CompileError> {
-    match parsed_stmt {
-        Statement::Return(exp) => {
-            let result = tackify_expression(exp, allocator)?;
-            let mut instrs = result.0;
-
-            instrs.push(TACKYInstruction::Return(result.1));
-            Ok(instrs)
-        }
-    }
-}
-
-fn tackify_expression(parsed_expr: Expression, allocator: &mut TempAllocator) -> Result<(Vec<TACKYInstruction>, TACKYValue), CompileError> {
-    match parsed_expr {
-        Expression::Constant(i) => {
-            Ok((vec![], TACKYValue::Constant(i)))
-        },
-        Expression::Unary(op, inner) => {
-            let result = tackify_expression(*inner, allocator)?;
-            let mut instrs = result.0;
-            let val = result.1;
-
-            let dest_name = allocator.allocate();
-
-            let dest = Variable(Identifier{name: dest_name});
-
-            instrs.push(TACKYInstruction::Unary(op, val, dest.clone()));
-            Ok((instrs, dest))
-        },
-        Expression::Binary(op, left, right) => {
-            let v1 = tackify_expression(*left, allocator)?;
-            let v2 = tackify_expression(*right, allocator)?;
-
-            let dst_name = allocator.allocate();
-            let dest = Variable(Identifier{name: dst_name});
-
-            let mut instrs = v1.0;
-            instrs.extend(v2.0);
-            instrs.push(TACKYInstruction::Binary(op, v1.1, v2.1, dest.clone()));
-
-            Ok((instrs, dest))
-        }
-    }
-}
-

@@ -1,12 +1,12 @@
 use crate::compile_error::CompileError;
-use crate::lexer::Token;
+use crate::lexer::{Token, TokenKind};
 use crate::parser::Expression::{Binary, Constant, Unary};
 use crate::parser::Statement::Return;
 use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Formatter;
-use crate::assembly::AssemblyGeneration;
-use crate::parser::UnaryOperator::{Complement, Negate};
+use crate::parser::UnaryOperator::{Complement, Negate, Not};
+use crate::lexer::TokenKind::{CloseBrace, CloseParen, IdentifierToken, Int, OpenBrace, OpenParen, Semicolon, Void};
 
 /**
 rustcc | parser.rs
@@ -111,53 +111,57 @@ impl PrettyPrint for Expression {
 
 pub enum UnaryOperator {
     Complement,
-    Negate
+    Negate,
+    Not
 }
 
 impl PrettyPrint for UnaryOperator {
     fn pretty_print(&self, f: &mut Formatter, _indent: usize) -> fmt::Result {
         match self {
             Complement => write!(f, "Complement"),
-            Negate => write!(f, "Negate")
-        }
-    }
-}
-
-impl AssemblyGeneration for UnaryOperator {
-    fn to_assembly(&self) -> String {
-        match self {
-            Complement => "notl".into(),
-            Negate => "negl".into()
+            Negate => write!(f, "Negate"),
+            Not => write!(f, "Not")
         }
     }
 }
 
 pub enum BinaryOperator {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Remainder,
-    BitwiseAnd,
-    BitwiseOr,
-    Xor,
-    LeftShift,
-    RightShift
+    // Arithmetic
+    Add, Subtract, Multiply, Divide, Remainder,
+
+    // Bitwise
+    BitwiseAnd, BitwiseOr, Xor, LeftShift, RightShift,
+
+    // Relational
+    And, Or, Equal, NotEqual, LessThan, LessOrEqual,
+    GreaterThan, GreaterOrEqual
 }
 
 impl PrettyPrint for BinaryOperator {
     fn pretty_print(&self, f: &mut Formatter, _indent: usize) -> fmt::Result {
+        use BinaryOperator::*;
         match self {
-            BinaryOperator::Add => write!(f, "Add"),
-            BinaryOperator::Subtract => write!(f, "Subtract"),
-            BinaryOperator::Multiply => write!(f, "Multiply"),
-            BinaryOperator::Divide => write!(f, "Divide"),
-            BinaryOperator::Remainder => write!(f, "Remainder"),
-            BinaryOperator::BitwiseAnd => write!(f, "BitwiseAnd"),
-            BinaryOperator::BitwiseOr => write!(f, "BitwiseOr"),
-            BinaryOperator::Xor => write!(f, "Xor"),
-            BinaryOperator::LeftShift => write!(f, "LeftShift"),
-            BinaryOperator::RightShift => write!(f, "RightShift")
+            Add => write!(f, "Add"),
+            Subtract => write!(f, "Subtract"),
+            Multiply => write!(f, "Multiply"),
+            Divide => write!(f, "Divide"),
+            Remainder => write!(f, "Remainder"),
+
+            BitwiseAnd => write!(f, "BitwiseAnd"),
+            BitwiseOr => write!(f, "BitwiseOr"),
+            Xor => write!(f, "Xor"),
+            LeftShift => write!(f, "LeftShift"),
+            RightShift => write!(f, "RightShift"),
+
+            And => write!(f, "And"),
+            Or => write!(f, "Or"),
+
+            Equal => write!(f, "Equal"),
+            NotEqual => write!(f, "NotEqual"),
+            LessThan => write!(f, "LessThan"),
+            LessOrEqual => write!(f, "LessOrEqual"),
+            GreaterThan => write!(f, "GreaterThan"),
+            GreaterOrEqual => write!(f, "GreaterOrEqual"),
         }
     }
 }
@@ -177,17 +181,10 @@ impl PrettyPrint for Identifier {
 Entry point for parsing. Uses recursive descent.
 */
 pub fn parse(tokens: &mut VecDeque<Token>) -> Result<Program, CompileError> {
-
-    // IMPLEMENTED ABSTRACT SYNTAX:
-    // <program> ::= <function>
-
-    let function_definition = match parse_function(tokens) {
-        Ok(f) => f,
-        Err(e) => return Err(e) // Parsing the definition failed.
-    };
+    let function_definition = parse_function(tokens)?;
 
     if !tokens.is_empty() {
-        return Err(CompileError::Syntax(String::from("Expected end of file, found more.")))
+        return Err(CompileError::Syntax("Expected end of file, found more.".to_string()));
     }
 
     Ok(Program { function_definition })
@@ -198,49 +195,19 @@ Parses a function definition. Expects the definition to be the next occurring AS
 in the set of tokens. Returns the resulting Function struct.
 */
 fn parse_function(tokens: &mut VecDeque<Token>) -> Result<Function, CompileError> {
+    expect(Int, tokens)?;
 
-    // IMPLEMENTED ABSTRACT SYNTAX:
-    // <function> ::= "int" <identifier> "(" "void" ")" "{" <statement> "}"
+    let identifier = parse_identifier(tokens)?;
 
-    match expect("INT_KEYWORD", tokens) {
-        Ok(_b) => {},
-        Err(e) => return Err(e)
-    }
+    expect(OpenParen, tokens)?;
+    expect(Void, tokens)?;
+    expect(CloseParen, tokens)?;
+    expect(OpenBrace, tokens)?;
 
-    let identifier = match parse_identifier(tokens) {
-        Ok(i) => i,
-        Err(e) => return Err(e)
-    };
+    let statement = parse_statement(tokens)?;
 
-    match expect("OPEN_PARENTHESIS", tokens) {
-        Ok(_b) => {},
-        Err(e) => return Err(e)
-    }
-
-    match expect("VOID_KEYWORD", tokens) {
-        Ok(_b) => {},
-        Err(e) => return Err(e)
-    }
-
-    match expect("CLOSE_PARENTHESIS", tokens) {
-        Ok(_b) => {},
-        Err(e) => return Err(e)
-    }
-
-    match expect("OPEN_BRACE", tokens) {
-        Ok(_b) => {},
-        Err(e) => return Err(e)
-    }
-
-    let statement = match parse_statement(tokens) {
-        Ok(e) => e,
-        Err(e) => return Err(e)
-    };
-
-    match expect("CLOSE_BRACE", tokens) {
-        Ok(_b) => Ok(Function { identifier, body: statement }),
-        Err(e) => return Err(e)
-    }
+    expect(CloseBrace, tokens)?;
+    Ok(Function { identifier, body: statement })
 }
 
 /**
@@ -248,23 +215,12 @@ Parses a statement. Expects the statement to be the next occurring AST element i
 Returns the Statement.
 */
 fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Statement, CompileError> {
+    expect(TokenKind::Return, tokens)?;
 
-    // <statement> ::= "return" <expression> ";"
+    let expression = parse_expression(tokens, 0)?;
 
-    match expect("RETURN_KEYWORD", tokens) {
-        Ok(_b) => {},
-        Err(e) => return Err(e)
-    }
-
-    let expression = match parse_expression(tokens, 0) {
-        Ok(e) => e,
-        Err(e) => return Err(e)
-    };
-
-    match expect("SEMICOLON", tokens) {
-        Ok(_b) => Ok(Return(expression)),
-        Err(e) => return Err(e)
-    }
+    expect(Semicolon, tokens)?;
+    Ok(Return(expression))
 }
 
 /**
@@ -296,57 +252,78 @@ fn parse_expression(tokens: &mut VecDeque<Token>, min_prec: i32) -> Result<Expre
     Ok(left)
 }
 
-fn is_binop(token: &Token) -> bool {
-    precedence(token).is_some()
-}
-
 fn precedence(token: &Token) -> Option<i32> {
+    use TokenKind::*;
     match token.kind {
-        "PLUS" => Some(45),
-        "NEGATION_SUBTRACTION_OPERATOR" => Some(45),
-        "ASTERISK" => Some(50),
-        "FORWARD_SLASH" => Some(50),
-        "PERCENT" => Some(50),
-        "LEFT_SHIFT" => Some(40),
-        "RIGHT_SHIFT" => Some(40),
-        "BITWISE_AND" => Some(35),
-        "BITWISE_OR" => Some(25),
-        "XOR" => Some(30),
-        _ => None
+        Asterisk | ForwardSlash | Percent => Some(50),
+        Plus | Minus => Some(45),
+        LeftShift | RightShift => Some(40),
+        LessThan | LessEq | GreaterThan | GreaterEq => Some(35),
+        EqualTo | NotEqual => Some(30),
+        BitwiseAnd => Some(25),
+        Xor => Some(24),
+        BitwiseOr => Some(23),
+        LogicalAnd => Some(20),
+        LogicalOr => Some(15),
+        _ => None,
     }
 }
 
 fn parse_binop(tokens: &mut VecDeque<Token>) -> Result<BinaryOperator, CompileError> {
     match tokens.pop_front() {
-        Some(Token{ kind: "PLUS", value: _ }) => {
+        Some(Token{ kind: TokenKind::Plus, value: _ }) => {
             Ok(BinaryOperator::Add)
         },
-        Some(Token{ kind: "NEGATION_SUBTRACTION_OPERATOR", value: _ }) => {
+        Some(Token{ kind: TokenKind::Minus, value: _ }) => {
             Ok(BinaryOperator::Subtract)
         },
-        Some(Token{ kind: "ASTERISK", value: _ }) => {
+        Some(Token{ kind: TokenKind::Asterisk, value: _ }) => {
             Ok(BinaryOperator::Multiply)
         },
-        Some(Token{ kind: "FORWARD_SLASH", value: _ }) => {
+        Some(Token{ kind: TokenKind::ForwardSlash, value: _ }) => {
             Ok(BinaryOperator::Divide)
         },
-        Some(Token{ kind: "PERCENT", value: _ }) => {
+        Some(Token{ kind: TokenKind::Percent, value: _ }) => {
             Ok(BinaryOperator::Remainder)
         },
-        Some(Token{ kind: "LEFT_SHIFT", value: _ }) => {
+        Some(Token{ kind: TokenKind::LeftShift, value: _ }) => {
             Ok(BinaryOperator::LeftShift)
         },
-        Some(Token{ kind: "RIGHT_SHIFT", value: _ }) => {
+        Some(Token{ kind: TokenKind::RightShift, value: _ }) => {
             Ok(BinaryOperator::RightShift)
         },
-        Some(Token{ kind: "BITWISE_AND", value: _ }) => {
+        Some(Token{ kind: TokenKind::BitwiseAnd, value: _ }) => {
             Ok(BinaryOperator::BitwiseAnd)
         },
-        Some(Token{ kind: "BITWISE_OR", value: _ }) => {
+        Some(Token{ kind: TokenKind::BitwiseOr, value: _ }) => {
             Ok(BinaryOperator::BitwiseOr)
         },
-        Some(Token{ kind: "XOR", value: _ }) => {
+        Some(Token{ kind: TokenKind::Xor, value: _ }) => {
             Ok(BinaryOperator::Xor)
+        },
+        Some(Token{ kind: TokenKind::LogicalAnd, value: _ }) => {
+            Ok(BinaryOperator::And)
+        },
+        Some(Token{ kind: TokenKind::LogicalOr, value: _ }) => {
+            Ok(BinaryOperator::Or)
+        },
+        Some(Token{ kind: TokenKind::EqualTo, value: _ }) => {
+            Ok(BinaryOperator::Equal)
+        },
+        Some(Token{ kind: TokenKind::NotEqual, value: _ }) => {
+            Ok(BinaryOperator::NotEqual)
+        },
+        Some(Token{ kind: TokenKind::LessThan, value: _ }) => {
+            Ok(BinaryOperator::LessThan)
+        },
+        Some(Token{ kind: TokenKind::LessEq, value: _ }) => {
+            Ok(BinaryOperator::LessOrEqual)
+        },
+        Some(Token{ kind: TokenKind::GreaterThan, value: _ }) => {
+            Ok(BinaryOperator::GreaterThan)
+        },
+        Some(Token{ kind: TokenKind::GreaterEq, value: _ }) => {
+            Ok(BinaryOperator::GreaterOrEqual)
         }
         Some(Token{ kind, value: _ }) => Err(CompileError::Syntax(String::from(format!("Invalid token ({}); expected binary operator.", kind)))),
         _ => Err(CompileError::Syntax(String::from("Unexpected end of tokens.")))
@@ -358,36 +335,45 @@ Parses a factor expression. Expects the factor to be the next occurring AST elem
 Returns the Expression.
 */
 fn parse_factor(tokens: &mut VecDeque<Token>) -> Result<Expression, CompileError> {
-    // <factor> ::= <int> | <unop> <int> | "(" <exp> ")"
+    // <factor> ::= <int> | <unop> <factor> | "(" <exp> ")"
 
     // Peek at the next token's kind in a short scope to avoid borrow conflicts
     let next_kind = {
-        let t = tokens.front().ok_or_else(|| CompileError::Syntax("Unexpected end of tokens.".to_string()))?;
+        let t = tokens.front().ok_or_else(|| {
+            CompileError::Syntax("Unexpected end of tokens.".to_string())
+        })?;
         t.kind
     };
 
     match next_kind {
-        "CONSTANT" => Ok(Constant(parse_int(tokens)?)),
-        "BITWISE_COMPLEMENT_OPERATOR" => {
+        TokenKind::Constant => Ok(Constant(parse_int(tokens)?)),
+
+        TokenKind::BitwiseComplement => {
             tokens.pop_front();
             Ok(Unary(Complement, Box::new(parse_factor(tokens)?)))
-        },
-        "NEGATION_SUBTRACTION_OPERATOR" => {
+        }
+
+        TokenKind::Minus => {
             tokens.pop_front();
             Ok(Unary(Negate, Box::new(parse_factor(tokens)?)))
-        },
-        "OPEN_PARENTHESIS" => {
+        }
+
+        TokenKind::LogicalNot => {
             tokens.pop_front();
-            let exp = match parse_expression(tokens, 0) {
-                Ok(expr) => expr,
-                Err(e) => return Err(e)
-            };
-            match expect("CLOSE_PARENTHESIS", tokens) {
-                Ok(_b) => Ok(exp),
-                Err(e) => Err(e)
-            }
-        },
-        _ => Err(CompileError::Syntax(String::from(format!("Unexpected token for expression: {}", next_kind))))
+            Ok(Unary(Not, Box::new(parse_factor(tokens)?)))
+        }
+
+        TokenKind::OpenParen => {
+            tokens.pop_front();
+            let exp = parse_expression(tokens, 0)?;
+            expect(CloseParen, tokens)?;
+            Ok(exp)
+        }
+
+        _ => Err(CompileError::Syntax(format!(
+            "Unexpected token for expression: {}",
+            next_kind
+        ))),
     }
 }
 
@@ -398,15 +384,17 @@ Returns the i32.
 fn parse_int(tokens: &mut VecDeque<Token>) -> Result<i32, CompileError> {
     // <int> ::= a constant token
 
-    let token = tokens.pop_front().ok_or_else(||
+    let token = tokens.pop_front().ok_or_else(|| {
         CompileError::Syntax("Unexpected end of tokens.".to_string())
-    )?;
+    })?;
 
-    match token.value.unwrap().parse::<i32>() {
-        Ok(i) => Ok(i),
-        Err(_e) => return Err(CompileError::Syntax("Expected integer constant, but failed to parse.".to_string()))
-    }
+    let raw = token.value.ok_or_else(|| {
+        CompileError::Syntax("Expected CONSTANT token to have a value, but found none.".to_string())
+    })?;
 
+    raw.parse::<i32>().map_err(|_| {
+        CompileError::Syntax("Expected integer constant, but failed to parse.".to_string())
+    })
 }
 
 fn parse_identifier(tokens: &mut VecDeque<Token>) -> Result<Identifier, CompileError> {
@@ -414,7 +402,7 @@ fn parse_identifier(tokens: &mut VecDeque<Token>) -> Result<Identifier, CompileE
         CompileError::Syntax("Unexpected end of tokens.".to_string())
     )?;
 
-    if token.kind != "IDENTIFIER" {
+    if token.kind != IdentifierToken {
         return Err(CompileError::Syntax(format!(
             "Expected IDENTIFIER, but found '{}'", token.kind
         )));
@@ -429,13 +417,10 @@ fn parse_identifier(tokens: &mut VecDeque<Token>) -> Result<Identifier, CompileE
 }
 
 /// Ensure the next token is what we expect.
-fn expect(token_kind: &str, tokens: &mut VecDeque<Token>) -> Result<bool, CompileError> {
-    let actual = tokens.pop_front().ok_or_else(||
-    CompileError::Syntax("Unexpected end of tokens.".to_string())
-    )?;
-    
-    if actual.kind != token_kind {
-       return Err(CompileError::Syntax(String::from(format!("Expected '{}', instead found '{}'", token_kind, actual.kind))))
+fn expect(kind: TokenKind, tokens: &mut VecDeque<Token>) -> Result<(), CompileError> {
+    let actual = tokens.pop_front().ok_or_else(|| CompileError::Syntax("Unexpected end of tokens.".to_string()))?;
+    if actual.kind != kind {
+        return Err(CompileError::Syntax(format!("Expected {:?}, instead found {:?}", kind, actual.kind)));
     }
-    Ok(actual.kind == token_kind)
+    Ok(())
 }

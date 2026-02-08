@@ -7,14 +7,85 @@ Written while following the book "Writing a C Compiler" by Nora Sandler.
 
 use regex::Regex;
 use crate::compile_error::CompileError;
+use crate::lexer::TokenKind::{Asterisk, BitwiseAnd, BitwiseComplement, BitwiseOr, CloseBrace, CloseParen, Constant, Decrement, EqualTo, ForwardSlash, GreaterEq, GreaterThan, IdentifierToken, Int, LeftShift, LessEq, LessThan, LogicalAnd, LogicalNot, LogicalOr, Minus, NotEqual, OpenBrace, OpenParen, Percent, Plus, Return, RightShift, Semicolon, Void, Xor};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenKind {
+    // keywords
+    Int, Void, Return,
+
+    // atoms
+    IdentifierToken, Constant,
+
+    // operators (multi)
+    Decrement, LogicalAnd, LogicalOr, LeftShift, RightShift,
+    LessEq, GreaterEq, NotEqual, EqualTo,
+
+    // operators (single)
+    LogicalNot, LessThan, GreaterThan, BitwiseAnd, BitwiseOr,
+    Xor, Plus, Minus, Asterisk, ForwardSlash, Percent,
+    BitwiseComplement,
+
+    // punctuation
+    OpenParen, CloseParen, OpenBrace, CloseBrace, Semicolon,
+}
+
+impl std::fmt::Display for TokenKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use TokenKind::*;
+        let s = match self {
+            // keywords
+            Int => "int",
+            Void => "void",
+            Return => "return",
+
+            // atoms
+            IdentifierToken => "identifier",
+            Constant => "constant",
+
+            // multi-char operators
+            Decrement => "--",
+            LogicalAnd => "&&",
+            LogicalOr => "||",
+            LeftShift => "<<",
+            RightShift => ">>",
+            LessEq => "<=",
+            GreaterEq => ">=",
+            EqualTo => "==",
+            NotEqual => "!=",
+
+            // single-char operators
+            LogicalNot => "!",
+            LessThan => "<",
+            GreaterThan => ">",
+            BitwiseAnd => "&",
+            BitwiseOr => "|",
+            Xor => "^",
+            Plus => "+",
+            Minus => "-",
+            Asterisk => "*",
+            ForwardSlash => "/",
+            Percent => "%",
+            BitwiseComplement => "~",
+
+            // punctuation
+            OpenParen => "(",
+            CloseParen => ")",
+            OpenBrace => "{",
+            CloseBrace => "}",
+            Semicolon => ";",
+        };
+        write!(f, "{}", s)
+    }
+}
 
 struct TokenDef {
-    kind: &'static str,
+    kind: TokenKind,
     pattern: Regex
 }
 
 pub struct Token {
-    pub kind: &'static str,
+    pub kind: TokenKind,
     pub value: Option<String>
 }
 
@@ -33,100 +104,45 @@ file and tokenizes the result, returning either a list of tokens or a CompileErr
 if an unknown token is encountered.
 */
 pub fn lex(file: &str) -> Result<Vec<Token>, CompileError> {
-
     let token_defs: Vec<TokenDef> = vec![
-        TokenDef{
-            kind: "IDENTIFIER",
-            pattern: Regex::new(r"[a-zA-Z_]\w*\b").unwrap()
-        },
-        TokenDef{
-            kind: "CONSTANT",
-            pattern: Regex::new(r"[0-9]+\b").unwrap()
-        },
-        TokenDef{
-            kind: "INT_KEYWORD",
-            pattern: Regex::new(r"int\b").unwrap()
-        },
-        TokenDef{
-            kind: "VOID_KEYWORD",
-            pattern: Regex::new(r"void\b").unwrap()
-        },
-        TokenDef{
-            kind: "RETURN_KEYWORD",
-            pattern: Regex::new(r"return\b").unwrap()
-        },
-        TokenDef{
-            kind: "DECREMENT_OPERATOR",
-            pattern: Regex::new(r"--").unwrap()
-        },
-        TokenDef{
-            kind: "NEGATION_SUBTRACTION_OPERATOR",
-            pattern: Regex::new(r"-").unwrap()
-        },
-        TokenDef{
-            kind: "BITWISE_COMPLEMENT_OPERATOR",
-            pattern: Regex::new(r"~").unwrap()
-        },
-        TokenDef{
-            kind: "OPEN_PARENTHESIS",
-            pattern: Regex::new(r"\(").unwrap()
-        },
-        TokenDef{
-            kind: "CLOSE_PARENTHESIS",
-            pattern: Regex::new(r"\)").unwrap()
-        },
-        TokenDef{
-            kind: "OPEN_BRACE",
-            pattern: Regex::new(r"\{").unwrap()
-        },
-        TokenDef{
-            kind: "CLOSE_BRACE",
-            pattern: Regex::new(r"}").unwrap()
-        },
-        TokenDef{
-            kind: "SEMICOLON",
-            pattern: Regex::new(r";").unwrap()
-        },
-        TokenDef{
-            kind: "PLUS",
-            pattern: Regex::new(r"\+").unwrap()
-        },
-        TokenDef{
-            kind: "ASTERISK",
-            pattern: Regex::new(r"\*").unwrap()
-        },
-        TokenDef{
-            kind: "FORWARD_SLASH",
-            pattern: Regex::new(r"/").unwrap()
-        },
-        TokenDef{
-            kind: "PERCENT",
-            pattern: Regex::new(r"%").unwrap()
-        },
-        // TODO: LOGICAL_AND
-        TokenDef{
-            kind: "BITWISE_AND",
-            pattern: Regex::new(r"&").unwrap()
-        },
-        // TODO: LOGICAL_OR
-        TokenDef{
-            kind: "BITWISE_OR",
-            pattern: Regex::new(r"\|").unwrap()
-        },
-        TokenDef{
-            kind: "XOR",
-            pattern: Regex::new(r"\^").unwrap()
-        },
-        TokenDef{
-            kind: "LEFT_SHIFT",
-            pattern: Regex::new(r"<<").unwrap()
-        },
-        // TODO: LESS_THAN
-        TokenDef{
-            kind: "RIGHT_SHIFT",
-            pattern: Regex::new(r">>").unwrap()
-        }
-        // TODO: GREATER_THAN
+        // keywords OR do the identifier-remap approach (not both)
+        TokenDef { kind: Int, pattern: Regex::new(r"^int\b").unwrap() },
+        TokenDef { kind: Void, pattern: Regex::new(r"^void\b").unwrap() },
+        TokenDef { kind: Return, pattern: Regex::new(r"^return\b").unwrap() },
+        TokenDef { kind: IdentifierToken, pattern: Regex::new(r"^[a-zA-Z_]\w*\b").unwrap() },
+        TokenDef { kind: Constant, pattern: Regex::new(r"^[0-9]+\b").unwrap() },
+
+        // multi-char operators first
+        TokenDef { kind: Decrement, pattern: Regex::new(r"^--").unwrap() },
+        TokenDef { kind: LogicalAnd, pattern: Regex::new(r"^&&").unwrap() },
+        TokenDef { kind: LogicalOr, pattern: Regex::new(r"^\|\|").unwrap() },
+        TokenDef { kind: LeftShift, pattern: Regex::new(r"^<<").unwrap() },
+        TokenDef { kind: RightShift, pattern: Regex::new(r"^>>").unwrap() },
+        TokenDef { kind: LessEq, pattern: Regex::new(r"^<=").unwrap() },
+        TokenDef { kind: GreaterEq, pattern: Regex::new(r"^>=").unwrap() },
+        TokenDef { kind: NotEqual, pattern: Regex::new(r"^!=").unwrap() },
+        TokenDef { kind: EqualTo, pattern: Regex::new(r"^==").unwrap() },
+
+        // single-char operators
+        TokenDef { kind: LogicalNot, pattern: Regex::new(r"^!").unwrap() },
+        TokenDef { kind: LessThan, pattern: Regex::new(r"^<").unwrap() },
+        TokenDef { kind: GreaterThan, pattern: Regex::new(r"^>").unwrap() },
+        TokenDef { kind: BitwiseAnd, pattern: Regex::new(r"^&").unwrap() },
+        TokenDef { kind: BitwiseOr, pattern: Regex::new(r"^\|").unwrap() },
+        TokenDef { kind: Xor, pattern: Regex::new(r"^\^").unwrap() },
+        TokenDef { kind: Plus, pattern: Regex::new(r"^\+").unwrap() },
+        TokenDef { kind: Minus, pattern: Regex::new(r"^-").unwrap() },
+        TokenDef { kind: Asterisk, pattern: Regex::new(r"^\*").unwrap() },
+        TokenDef { kind: ForwardSlash, pattern: Regex::new(r"^/").unwrap() },
+        TokenDef { kind: Percent, pattern: Regex::new(r"^%").unwrap() },
+        TokenDef { kind: BitwiseComplement, pattern: Regex::new(r"^~").unwrap() },
+
+        // punctuation
+        TokenDef { kind: OpenParen, pattern: Regex::new(r"^\(").unwrap() },
+        TokenDef { kind: CloseParen, pattern: Regex::new(r"^\)").unwrap() },
+        TokenDef { kind: OpenBrace, pattern: Regex::new(r"^\{").unwrap() },
+        TokenDef { kind: CloseBrace, pattern: Regex::new(r"^}").unwrap() },
+        TokenDef { kind: Semicolon, pattern: Regex::new(r"^;").unwrap() },
     ];
 
     // Read from the file
@@ -143,48 +159,23 @@ pub fn lex(file: &str) -> Result<Vec<Token>, CompileError> {
             continue;
         }
 
-        let mut best_match_kind: Option<&str> = None;
-        let mut best_match_value: Option<&str> = None;
-        let mut best_match_len: usize = 0;
+        if let Some((def, m)) = token_defs
+            .iter()
+            .find_map(|def| def.pattern.find(input).map(|m| (def, m)))
+        {
+            let kind = def.kind;
+            let text = m.as_str();
 
-        for def in &token_defs {
-            if let Some(m) = def.pattern.find(input) {
-                // Match must begin at the start, and the end must be larger than or as large as the
-                // current best match end. In other words, find the largest match anchored to the beginning
-                // of the input.
-                if m.start() == 0 && m.end() >= best_match_len {
-                    best_match_kind = Some(def.kind);
-                    best_match_value = Some(m.as_str());
-                    best_match_len = m.end();
-                }
-            }
-        }
+            let value = match kind {
+                Int | Void | Return => None,
+                _ => Some(text.to_string()),
+            };
 
-        if let (Some(kind), Some(value)) = (best_match_kind, best_match_value) {
-
-            if kind == "IDENTIFIER" {
-                if value == "int" {
-                    tokens.push(Token { kind: "INT_KEYWORD", value: None });
-                } else if value == "void" {
-                    tokens.push(Token { kind: "VOID_KEYWORD", value: None });
-                } else if value == "return" {
-                    tokens.push(Token { kind: "RETURN_KEYWORD", value: None });
-                } else {
-                    tokens.push(Token { kind, value: Some(value.to_string()) });
-                }
-
-                input = &input[best_match_len..];
-            } else {
-
-                tokens.push(Token {
-                    kind,
-                    value: Some(value.to_string()),
-                });
-                input = &input[best_match_len..]; // Advance input by match length
-            }
-
+            tokens.push(Token { kind, value });
+            input = &input[m.end()..];
         } else {
             eprintln!("Unrecognized token starting with: {:?}", input);
+
             return Err(CompileError::Syntax("Unexpected token found.".to_string()));
         }
     }
