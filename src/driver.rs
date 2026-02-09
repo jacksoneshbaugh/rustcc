@@ -10,12 +10,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::{assembly, lexer, parser, tacky};
+use crate::{assembly, lexer, parser, semantic_analysis, tacky};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DriverFlags {
     pub lex: bool,            // --lex
     pub parse: bool,          // --parse
+    pub validate: bool,       // --validate
     pub tacky: bool,          // --tacky
     pub codegen: bool,        // --codegen (dump asm AST)
     pub emit_asm_only: bool,  // -S (stop after writing .s)
@@ -28,6 +29,7 @@ pub enum DriverStop {
     Done,                // fully compiled and linked
     StoppedAfterLex,
     StoppedAfterParse,
+    StoppedAfterValidation,
     StoppedAfterTacky,
     StoppedAfterCodegen,
     StoppedAfterEmitAsm, // written .s, stopped due to -S
@@ -119,8 +121,23 @@ pub fn compile_file(input: &Path, flags: DriverFlags) -> Result<(DriverStop, Com
         return Ok((DriverStop::StoppedAfterParse, paths));
     }
 
+    // ---- SEMANTIC ANALYSIS ----
+
+    let resolved_prog = semantic_analysis::resolve_program(program)
+        .map_err(|e| format!("Failed to resolve program.\n{e}"))?;
+
+    if flags.verbose {
+        eprintln!("Semantic analysis completed successfully.");
+    }
+
+    if flags.validate {
+        println!("{resolved_prog}");
+        cleanup(&paths, flags.keep_temps)?;
+        return Ok((DriverStop::StoppedAfterValidation, paths));
+    }
+
     // ---- TACKY ----
-    let tacky_prog = tacky::tackify(program)
+    let tacky_prog = tacky::tackify(resolved_prog)
         .map_err(|e| format!("TACKY lowering failed.\n{e}"))?;
 
     if flags.verbose {

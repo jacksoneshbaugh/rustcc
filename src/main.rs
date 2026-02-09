@@ -10,6 +10,7 @@ mod parser;
 mod tacky;
 mod assembly;
 mod driver;
+mod semantic_analysis;
 
 use std::env;
 use std::path::Path;
@@ -29,6 +30,7 @@ fn main() {
     let driver_flags = driver::DriverFlags {
         lex: has("--lex"),
         parse: has("--parse"),
+        validate: has("--validate"),
         tacky: has("--tacky"),
         codegen: has("--codegen"),
         emit_asm_only: has("-S"),

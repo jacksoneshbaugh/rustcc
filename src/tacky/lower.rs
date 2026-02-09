@@ -1,6 +1,8 @@
 use crate::compile_error::CompileError;
-use crate::parser::{BinaryOperator, Expression, Function, Identifier, Program, Statement};
+use crate::parser::{BinaryOperator, BlockItem, Declaration, Expression, Function, Identifier, Program, Statement};
 use crate::tacky::ast::{TACKYFunction, TACKYInstruction, TACKYPlace, TACKYProgram, TACKYValue};
+use crate::tacky::TACKYInstruction::Copy;
+use crate::tacky::TACKYValue::Variable;
 
 /**
 rustcc | tacky/lower.rs
@@ -39,20 +41,61 @@ pub fn tackify(ast: Program) -> Result<TACKYProgram, CompileError> {
     })
 }
 
-fn tackify_function(parsed_fn: Function, allocator: &mut TempAllocator) -> Result<TACKYFunction, CompileError> {
+fn tackify_function(
+    parsed_fn: Function,
+    allocator: &mut TempAllocator,
+) -> Result<TACKYFunction, CompileError> {
+    let mut instrs: Vec<TACKYInstruction> = Vec::new();
+
+    for item in parsed_fn.body {
+        let mut item_instrs = tackify_block_item(item, allocator)?;
+        instrs.append(&mut item_instrs);
+    }
+
+    let needs_implicit_return = match instrs.last() {
+        Some(TACKYInstruction::Return(_)) => false,
+        _ => true,
+    };
+
+    if needs_implicit_return {
+        instrs.push(TACKYInstruction::Return(TACKYValue::Constant(0)));
+    }
+
     Ok(TACKYFunction {
         identifier: parsed_fn.identifier,
-        instructions: tackify_statement(parsed_fn.body, allocator)?,
+        instructions: instrs,
     })
+}
+
+fn tackify_block_item(parsed_block_item: BlockItem, allocator: &mut TempAllocator) -> Result<Vec<TACKYInstruction>, CompileError> {
+    match parsed_block_item {
+        BlockItem::Statement(stmt) => tackify_statement(stmt, allocator),
+        BlockItem::Declaration(declaration) => {
+            match declaration {
+                Declaration::Declaration(_identifier, None) => Ok(vec![]),
+                Declaration::Declaration(identifier, Some(expression)) => {
+                    let place = TACKYPlace(identifier);
+                    let (mut instrs, rhs) = tackify_expression(expression, allocator)?;
+                    instrs.push(Copy(rhs.clone(), place.clone()));
+                    Ok(instrs)
+                }
+            }
+        }
+    }
 }
 
 fn tackify_statement(parsed_stmt: Statement, allocator: &mut TempAllocator) -> Result<Vec<TACKYInstruction>, CompileError> {
     match parsed_stmt {
+        Statement::Expression(e) => {
+            let (instrs, _result) = tackify_expression(e, allocator)?;
+            Ok(instrs)
+        },
         Statement::Return(exp) => {
             let (mut instrs, val) = tackify_expression(exp, allocator)?;
             instrs.push(TACKYInstruction::Return(val));
             Ok(instrs)
-        }
+        },
+        Statement::Null => Ok(vec![])
     }
 }
 
@@ -62,6 +105,15 @@ fn tackify_expression(
 ) -> Result<(Vec<TACKYInstruction>, TACKYValue), CompileError> {
     match parsed_expr {
         Expression::Constant(i) => Ok((vec![], TACKYValue::Constant(i))),
+
+        Expression::Variable(identifier) => Ok((vec![], TACKYValue::Variable(identifier))),
+
+        Expression::Assignment(left, right) => {
+            let place = tackify_place(*left)?;
+            let (mut instrs, rhs) = tackify_expression(*right, allocator)?;
+            instrs.push(Copy(rhs.clone(), place.clone()));
+            Ok((instrs, Variable(place.0)))
+        },
 
         Expression::Unary(op, inner) => {
             let (mut instrs, val) = tackify_expression(*inner, allocator)?;
@@ -139,5 +191,12 @@ fn tackify_expression(
 
             Ok((instrs1, result_val))
         }
+    }
+}
+
+fn tackify_place(expr: Expression) -> Result<TACKYPlace, CompileError> {
+    match expr {
+        Expression::Variable(id) => Ok(TACKYPlace(id)),
+        _ => Err(CompileError::Syntax("Expected assignable place".to_string())),
     }
 }

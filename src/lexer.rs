@@ -7,7 +7,7 @@ Written while following the book "Writing a C Compiler" by Nora Sandler.
 
 use regex::Regex;
 use crate::compile_error::CompileError;
-use crate::lexer::TokenKind::{Asterisk, BitwiseAnd, BitwiseComplement, BitwiseOr, CloseBrace, CloseParen, Constant, Decrement, EqualTo, ForwardSlash, GreaterEq, GreaterThan, IdentifierToken, Int, LeftShift, LessEq, LessThan, LogicalAnd, LogicalNot, LogicalOr, Minus, NotEqual, OpenBrace, OpenParen, Percent, Plus, Return, RightShift, Semicolon, Void, Xor};
+use crate::lexer::TokenKind::{Assignment, Asterisk, BitwiseAnd, BitwiseComplement, BitwiseOr, CloseBrace, CloseParen, Constant, Decrement, EqualTo, ForwardSlash, GreaterEq, GreaterThan, IdentifierToken, Int, LeftShift, LessEq, LessThan, LogicalAnd, LogicalNot, LogicalOr, Minus, NotEqual, OpenBrace, OpenParen, Percent, Plus, Return, RightShift, Semicolon, Void, Xor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
@@ -24,7 +24,7 @@ pub enum TokenKind {
     // operators (single)
     LogicalNot, LessThan, GreaterThan, BitwiseAnd, BitwiseOr,
     Xor, Plus, Minus, Asterisk, ForwardSlash, Percent,
-    BitwiseComplement,
+    BitwiseComplement, Assignment,
 
     // punctuation
     OpenParen, CloseParen, OpenBrace, CloseBrace, Semicolon,
@@ -67,6 +67,7 @@ impl std::fmt::Display for TokenKind {
             ForwardSlash => "/",
             Percent => "%",
             BitwiseComplement => "~",
+            Assignment => "=",
 
             // punctuation
             OpenParen => "(",
@@ -136,6 +137,7 @@ pub fn lex(file: &str) -> Result<Vec<Token>, CompileError> {
         TokenDef { kind: ForwardSlash, pattern: Regex::new(r"^/").unwrap() },
         TokenDef { kind: Percent, pattern: Regex::new(r"^%").unwrap() },
         TokenDef { kind: BitwiseComplement, pattern: Regex::new(r"^~").unwrap() },
+        TokenDef { kind: Assignment, pattern: Regex::new(r"^=").unwrap() },
 
         // punctuation
         TokenDef { kind: OpenParen, pattern: Regex::new(r"^\(").unwrap() },
