@@ -20,6 +20,9 @@ pub enum BlockItem {
 pub enum Statement {
     Return(Expression),
     Expression(Expression),
+    Goto(Identifier),
+    Label(Identifier, Box<Statement>),
+    If(Expression, Box<Statement>, Option<Box<Statement>>),
     Null
 }
 
@@ -48,6 +51,7 @@ pub enum Expression {
 
     Unary(UnaryOperator, Box<Expression>),
     Binary(BinaryOperator, Box<Expression>, Box<Expression>),
+    Ternary(Box<Expression>, Box<Expression>, Box<Expression>),
 
     // assignment family
     Assignment(AssignOp, Box<Expression>, Box<Expression>),

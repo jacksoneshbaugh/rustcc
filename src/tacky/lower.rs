@@ -2,7 +2,7 @@ use crate::compile_error::CompileError;
 use crate::parser::BinaryOperator::{Add, BitwiseAnd, BitwiseOr, Divide, LeftShift, Multiply, Remainder, RightShift, Subtract, Xor};
 use crate::parser::{AssignOp, BinaryOperator, BlockItem, Declaration, Expression, Function, Identifier, Program, Statement};
 use crate::tacky::ast::{TACKYFunction, TACKYInstruction, TACKYPlace, TACKYProgram, TACKYValue};
-use crate::tacky::TACKYInstruction::{Binary, Copy};
+use crate::tacky::TACKYInstruction::{Binary, Copy, Jump, JumpIfZero, Label};
 use crate::tacky::TACKYValue::Variable;
 
 /**
@@ -91,6 +91,53 @@ fn tackify_statement(parsed_stmt: Statement, allocator: &mut TempAllocator) -> R
             let (instrs, _result) = tackify_expression(e, allocator)?;
             Ok(instrs)
         },
+
+        // if (<cond>) <stmt>
+        Statement::If(condition, then_branch, None) => {
+            let (mut instrs, result) = tackify_expression(condition, allocator)?;
+            let c = allocator.new_place();
+            let end = allocator.new_label("if_end");
+
+            instrs.push(Copy(result.clone(), c.clone()));
+            instrs.push(JumpIfZero(Variable(c.0.clone()), end.clone()));
+            let mut stmt_instrs = tackify_statement(*then_branch, allocator)?;
+            instrs.append(&mut stmt_instrs);
+            instrs.push(Label(end.clone()));
+
+            Ok(instrs)
+        },
+
+        // if (<cond>) <stmt> else <stmt>
+        Statement::If(condition, then_branch, Some(else_branch)) => {
+            let (mut instrs, result) = tackify_expression(condition, allocator)?;
+            let c = allocator.new_place();
+            let else_lab = allocator.new_label("if_else");
+            let end_lab = allocator.new_label("if_end");
+
+            instrs.push(Copy(result.clone(), c.clone()));
+            instrs.push(JumpIfZero(Variable(c.0.clone()), else_lab.clone()));
+            let mut then_stmt_instrs = tackify_statement(*then_branch, allocator)?;
+            instrs.append(&mut then_stmt_instrs);
+            instrs.push(Jump(end_lab.clone()));
+
+            instrs.push(Label(else_lab.clone()));
+            let mut else_stmt_instrs = tackify_statement(*else_branch, allocator)?;
+            instrs.append(&mut else_stmt_instrs);
+
+            instrs.push(Label(end_lab.clone()));
+
+            Ok(instrs)
+        },
+
+        Statement::Goto(identifier) => Ok(vec![Jump(identifier)]),
+        Statement::Label(identifier, statement_box) => {
+            let mut instrs: Vec<TACKYInstruction> = Vec::new();
+            instrs.push(Label(identifier.clone()));
+            let mut instrs_stmt = tackify_statement(*statement_box, allocator)?;
+            instrs.append(&mut instrs_stmt);
+            Ok(instrs)
+        }
+
         Statement::Return(exp) => {
             let (mut instrs, val) = tackify_expression(exp, allocator)?;
             instrs.push(TACKYInstruction::Return(val));
@@ -159,6 +206,35 @@ fn tackify_expression(
                 AssignOp::ShrAssign => tackify_compound_assign(RightShift, *left, *right, allocator)
             }
         },
+
+        Expression::Ternary(condition, left, right) => {
+            let (mut instrs, cond_val) = tackify_expression(*condition, allocator)?;
+
+            let c = allocator.new_place();
+            instrs.push(Copy(cond_val, c.clone()));
+
+            let out = allocator.new_place();
+            let else_lab = allocator.new_label("ternary_else");
+            let end_lab  = allocator.new_label("ternary_end");
+
+            instrs.push(JumpIfZero(Variable(c.0.clone()), else_lab.clone()));
+
+            // then
+            let (mut then_instrs, then_val) = tackify_expression(*left, allocator)?;
+            instrs.append(&mut then_instrs);
+            instrs.push(Copy(then_val, out.clone()));
+            instrs.push(Jump(end_lab.clone()));
+
+            // else
+            instrs.push(Label(else_lab));
+            let (mut else_instrs, else_val) = tackify_expression(*right, allocator)?;
+            instrs.append(&mut else_instrs);
+            instrs.push(Copy(else_val, out.clone()));
+
+            instrs.push(Label(end_lab));
+
+            Ok((instrs, Variable(out.0)))
+        }
 
         // increment
         Expression::PreInc(inner) => {

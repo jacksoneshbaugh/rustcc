@@ -7,12 +7,12 @@ Written while following the book "Writing a C Compiler" by Nora Sandler.
 
 use regex::Regex;
 use crate::compile_error::CompileError;
-use crate::lexer::TokenKind::{AddAssign, AndAssign, Assignment, Asterisk, BitwiseAnd, BitwiseComplement, BitwiseOr, CloseBrace, CloseParen, Constant, Decrement, DivAssign, EqualTo, ForwardSlash, GreaterEq, GreaterThan, IdentifierToken, Increment, Int, LeftShift, LeftShiftAssign, LessEq, LessThan, LogicalAnd, LogicalNot, LogicalOr, Minus, ModAssign, MultiplyAssign, NotEqual, OpenBrace, OpenParen, OrAssign, Percent, Plus, Return, RightShift, RightShiftAssign, Semicolon, SubtractAssign, Void, Xor, XorAssign};
+use crate::lexer::TokenKind::{AddAssign, AndAssign, Assignment, Asterisk, BitwiseAnd, BitwiseComplement, BitwiseOr, CloseBrace, CloseParen, Colon, Constant, Decrement, DivAssign, Else, EqualTo, ForwardSlash, Goto, GreaterEq, GreaterThan, IdentifierToken, If, Increment, Int, LeftShift, LeftShiftAssign, LessEq, LessThan, LogicalAnd, LogicalNot, LogicalOr, Minus, ModAssign, MultiplyAssign, NotEqual, OpenBrace, OpenParen, OrAssign, Percent, Plus, QuestionMark, Return, RightShift, RightShiftAssign, Semicolon, SubtractAssign, Void, Xor, XorAssign};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
     // keywords
-    Int, Void, Return,
+    Int, Void, Return, If, Else, Goto,
 
     // atoms
     IdentifierToken, Constant,
@@ -28,6 +28,9 @@ pub enum TokenKind {
     Xor, Plus, Minus, Asterisk, ForwardSlash, Percent,
     BitwiseComplement, Assignment,
 
+    // conditional expressions
+    QuestionMark, Colon,
+
     // punctuation
     OpenParen, CloseParen, OpenBrace, CloseBrace, Semicolon,
 }
@@ -40,6 +43,9 @@ impl std::fmt::Display for TokenKind {
             Int => "int",
             Void => "void",
             Return => "return",
+            If => "if",
+            Else => "else",
+            Goto => "goto",
 
             // atoms
             IdentifierToken => "identifier",
@@ -82,6 +88,10 @@ impl std::fmt::Display for TokenKind {
             BitwiseComplement => "~",
             Assignment => "=",
 
+            // conditional expressions
+            QuestionMark => "?",
+            Colon => ":",
+
             // punctuation
             OpenParen => "(",
             CloseParen => ")",
@@ -119,10 +129,13 @@ if an unknown token is encountered.
 */
 pub fn lex(file: &str) -> Result<Vec<Token>, CompileError> {
     let token_defs: Vec<TokenDef> = vec![
-        // keywords OR do the identifier-remap approach (not both)
+        // keywords
         TokenDef { kind: Int, pattern: Regex::new(r"^int\b").unwrap() },
         TokenDef { kind: Void, pattern: Regex::new(r"^void\b").unwrap() },
         TokenDef { kind: Return, pattern: Regex::new(r"^return\b").unwrap() },
+        TokenDef { kind: If, pattern: Regex::new(r"^if\b").unwrap() },
+        TokenDef { kind: Else, pattern: Regex::new(r"^else\b").unwrap() },
+        TokenDef { kind: Goto, pattern: Regex::new(r"^goto\b").unwrap() },
         TokenDef { kind: IdentifierToken, pattern: Regex::new(r"^[a-zA-Z_]\w*\b").unwrap() },
         TokenDef { kind: Constant, pattern: Regex::new(r"^[0-9]+\b").unwrap() },
 
@@ -167,6 +180,10 @@ pub fn lex(file: &str) -> Result<Vec<Token>, CompileError> {
         TokenDef { kind: Percent, pattern: Regex::new(r"^%").unwrap() },
         TokenDef { kind: BitwiseComplement, pattern: Regex::new(r"^~").unwrap() },
         TokenDef { kind: Assignment, pattern: Regex::new(r"^=").unwrap() },
+
+        // conditional expressions
+        TokenDef { kind: QuestionMark, pattern: Regex::new(r"^\?").unwrap() },
+        TokenDef { kind: Colon, pattern: Regex::new(r"^:").unwrap() },
 
         // punctuation
         TokenDef { kind: OpenParen, pattern: Regex::new(r"^\(").unwrap() },

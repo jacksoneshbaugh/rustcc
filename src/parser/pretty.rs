@@ -7,12 +7,19 @@ pub trait PrettyPrint {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result;
 }
 
+fn ind(n: usize) -> String {
+    "  ".repeat(n)
+}
+
+fn comma_line(f: &mut Formatter, indent: usize) -> fmt::Result {
+    writeln!(f, "{},", ind(indent))
+}
+
 impl PrettyPrint for Program {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
-        let indent_str = "  ".repeat(indent);
-        writeln!(f, "{}Program(", indent_str)?;
+        writeln!(f, "{}Program(", ind(indent))?;
         self.function_definition.pretty_print(f, indent + 1)?;
-        writeln!(f, "{})", indent_str)
+        writeln!(f, "{})", ind(indent))
     }
 }
 
@@ -24,35 +31,33 @@ impl fmt::Display for Program {
 
 impl PrettyPrint for Function {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
-        let indent_str = "  ".repeat(indent);
+        writeln!(f, "{}Function(", ind(indent))?;
 
-        writeln!(f, "{}Function(", indent_str)?;
         self.identifier.pretty_print(f, indent + 1)?;
+        comma_line(f, indent + 1)?;
 
-        writeln!(f, "{}Body(", "  ".repeat(indent + 1))?;
+        writeln!(f, "{}Body(", ind(indent + 1))?;
         for item in &self.body {
             item.pretty_print(f, indent + 2)?;
         }
-        writeln!(f, "{})", "  ".repeat(indent + 1))?;
+        writeln!(f, "{})", ind(indent + 1))?;
 
-        writeln!(f, "{})", indent_str)
+        writeln!(f, "{})", ind(indent))
     }
 }
 
 impl PrettyPrint for BlockItem {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
-        let indent_str = "  ".repeat(indent);
-
         match self {
             BlockItem::Statement(stmt) => {
-                writeln!(f, "{}Statement(", indent_str)?;
+                writeln!(f, "{}Statement(", ind(indent))?;
                 stmt.pretty_print(f, indent + 1)?;
-                writeln!(f, "{})", indent_str)
+                writeln!(f, "{})", ind(indent))
             }
             BlockItem::Declaration(decl) => {
-                writeln!(f, "{}DeclarationItem(", indent_str)?;
+                writeln!(f, "{}DeclarationItem(", ind(indent))?;
                 decl.pretty_print(f, indent + 1)?;
-                writeln!(f, "{})", indent_str)
+                writeln!(f, "{})", ind(indent))
             }
         }
     }
@@ -60,45 +65,82 @@ impl PrettyPrint for BlockItem {
 
 impl PrettyPrint for Statement {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
-        let indent_str = "  ".repeat(indent);
-
         match self {
             Statement::Return(exp) => {
-                writeln!(f, "{}Return(", indent_str)?;
+                writeln!(f, "{}Return(", ind(indent))?;
                 exp.pretty_print(f, indent + 1)?;
-                writeln!(f, "{})", indent_str)
+                writeln!(f, "{})", ind(indent))
             }
             Statement::Expression(exp) => {
-                writeln!(f, "{}ExpressionStmt(", indent_str)?;
+                writeln!(f, "{}ExpressionStmt(", ind(indent))?;
                 exp.pretty_print(f, indent + 1)?;
-                writeln!(f, "{})", indent_str)
+                writeln!(f, "{})", ind(indent))
             }
-            Statement::Null => writeln!(f, "{}Null", indent_str),
+
+            Statement::Goto(label) => {
+                writeln!(f, "{}Goto(", ind(indent))?;
+                label.pretty_print(f, indent + 1)?;
+                writeln!(f, "{})", ind(indent))
+            }
+
+            Statement::Label(name, stmt) => {
+                writeln!(f, "{}Label(", ind(indent))?;
+                name.pretty_print(f, indent + 1)?;
+                comma_line(f, indent + 1)?;
+                writeln!(f, "{}Body(", ind(indent + 1))?;
+                stmt.pretty_print(f, indent + 2)?;
+                writeln!(f, "{})", ind(indent + 1))?;
+                writeln!(f, "{})", ind(indent))
+            }
+
+            Statement::Null => writeln!(f, "{}Null", ind(indent)),
+
+            Statement::If(cond, then_s, else_s) => {
+                writeln!(f, "{}If(", ind(indent))?;
+
+                writeln!(f, "{}Condition(", ind(indent + 1))?;
+                cond.pretty_print(f, indent + 2)?;
+                writeln!(f, "{})", ind(indent + 1))?;
+                comma_line(f, indent + 1)?;
+
+                writeln!(f, "{}Then(", ind(indent + 1))?;
+                then_s.pretty_print(f, indent + 2)?;
+                writeln!(f, "{})", ind(indent + 1))?;
+
+                if let Some(el) = else_s.as_deref() {
+                    comma_line(f, indent + 1)?;
+                    writeln!(f, "{}Else(", ind(indent + 1))?;
+                    el.pretty_print(f, indent + 2)?;
+                    writeln!(f, "{})", ind(indent + 1))?;
+                }
+
+                writeln!(f, "{})", ind(indent))
+            }
         }
     }
 }
 
 impl PrettyPrint for Declaration {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
-        let indent_str = "  ".repeat(indent);
-
         match self {
             Declaration::Declaration(id, init) => {
-                writeln!(f, "{}Declaration(", indent_str)?;
+                writeln!(f, "{}Declaration(", ind(indent))?;
                 id.pretty_print(f, indent + 1)?;
 
                 match init {
                     Some(expr) => {
-                        writeln!(f, "{}Initializer(", "  ".repeat(indent + 1))?;
+                        comma_line(f, indent + 1)?;
+                        writeln!(f, "{}Initializer(", ind(indent + 1))?;
                         expr.pretty_print(f, indent + 2)?;
-                        writeln!(f, "{})", "  ".repeat(indent + 1))?;
+                        writeln!(f, "{})", ind(indent + 1))?;
                     }
                     None => {
-                        writeln!(f, "{}Initializer(None)", "  ".repeat(indent + 1))?;
+                        comma_line(f, indent + 1)?;
+                        writeln!(f, "{}Initializer(None)", ind(indent + 1))?;
                     }
                 }
 
-                writeln!(f, "{})", indent_str)
+                writeln!(f, "{})", ind(indent))
             }
         }
     }
@@ -106,63 +148,87 @@ impl PrettyPrint for Declaration {
 
 impl PrettyPrint for Expression {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
-        let indent_str = "  ".repeat(indent);
-
         match self {
-            Expression::Constant(val) => writeln!(f, "{}Constant({})", indent_str, val),
+            Expression::Constant(val) => writeln!(f, "{}Constant({})", ind(indent), val),
 
-            Expression::Variable(id) => writeln!(f, "{}Variable({})", indent_str, id.name),
+            Expression::Variable(id) => writeln!(f, "{}Variable({})", ind(indent), id.name),
 
             Expression::Unary(op, expr) => {
-                writeln!(f, "{}Unary(", indent_str)?;
-                write!(f, "{}", "  ".repeat(indent + 1))?;
+                writeln!(f, "{}Unary(", ind(indent))?;
+                write!(f, "{}", ind(indent + 1))?;
                 op.pretty_print(f, indent + 1)?;
-                writeln!(f, ",")?;
+                writeln!(f)?; // finish operator line
+                comma_line(f, indent + 1)?;
                 expr.pretty_print(f, indent + 1)?;
-                writeln!(f, "{})", indent_str)
+                writeln!(f, "{})", ind(indent))
             }
 
             Expression::Binary(op, left, right) => {
-                writeln!(f, "{}Binary(", indent_str)?;
-                write!(f, "{}", "  ".repeat(indent + 1))?;
+                writeln!(f, "{}Binary(", ind(indent))?;
+                write!(f, "{}", ind(indent + 1))?;
                 op.pretty_print(f, indent + 1)?;
-                writeln!(f, ",")?;
+                writeln!(f)?;
+                comma_line(f, indent + 1)?;
                 left.pretty_print(f, indent + 1)?;
-                writeln!(f, ",")?;
+                comma_line(f, indent + 1)?;
                 right.pretty_print(f, indent + 1)?;
-                writeln!(f, "{})", indent_str)
+                writeln!(f, "{})", ind(indent))
+            }
+
+            Expression::Ternary(cond, then_e, else_e) => {
+                writeln!(f, "{}Ternary(", ind(indent))?;
+
+                writeln!(f, "{}Condition(", ind(indent + 1))?;
+                cond.pretty_print(f, indent + 2)?;
+                writeln!(f, "{})", ind(indent + 1))?;
+                comma_line(f, indent + 1)?;
+
+                writeln!(f, "{}Then(", ind(indent + 1))?;
+                then_e.pretty_print(f, indent + 2)?;
+                writeln!(f, "{})", ind(indent + 1))?;
+                comma_line(f, indent + 1)?;
+
+                writeln!(f, "{}Else(", ind(indent + 1))?;
+                else_e.pretty_print(f, indent + 2)?;
+                writeln!(f, "{})", ind(indent + 1))?;
+
+                writeln!(f, "{})", ind(indent))
             }
 
             Expression::Assignment(assign_op, lhs, rhs) => {
-                writeln!(f, "{}Assignment(", indent_str)?;
-                write!(f, "{}", "  ".repeat(indent + 1))?;
+                writeln!(f, "{}Assignment(", ind(indent))?;
+
+                write!(f, "{}", ind(indent + 1))?;
                 assign_op.pretty_print(f, indent + 1)?;
-                writeln!(f, ",")?;
+                writeln!(f)?;
+                comma_line(f, indent + 1)?;
+
                 lhs.pretty_print(f, indent + 1)?;
-                writeln!(f, ",")?;
+                comma_line(f, indent + 1)?;
+
                 rhs.pretty_print(f, indent + 1)?;
-                writeln!(f, "{})", indent_str)
+                writeln!(f, "{})", ind(indent))
             }
 
             Expression::PreInc(expr) => {
-                writeln!(f, "{}PreInc(", indent_str)?;
+                writeln!(f, "{}PreInc(", ind(indent))?;
                 expr.pretty_print(f, indent + 1)?;
-                writeln!(f, "{})", indent_str)
+                writeln!(f, "{})", ind(indent))
             }
             Expression::PreDec(expr) => {
-                writeln!(f, "{}PreDec(", indent_str)?;
+                writeln!(f, "{}PreDec(", ind(indent))?;
                 expr.pretty_print(f, indent + 1)?;
-                writeln!(f, "{})", indent_str)
+                writeln!(f, "{})", ind(indent))
             }
             Expression::PostInc(expr) => {
-                writeln!(f, "{}PostInc(", indent_str)?;
+                writeln!(f, "{}PostInc(", ind(indent))?;
                 expr.pretty_print(f, indent + 1)?;
-                writeln!(f, "{})", indent_str)
+                writeln!(f, "{})", ind(indent))
             }
             Expression::PostDec(expr) => {
-                writeln!(f, "{}PostDec(", indent_str)?;
+                writeln!(f, "{}PostDec(", ind(indent))?;
                 expr.pretty_print(f, indent + 1)?;
-                writeln!(f, "{})", indent_str)
+                writeln!(f, "{})", ind(indent))
             }
         }
     }
@@ -228,7 +294,6 @@ impl PrettyPrint for BinaryOperator {
 
 impl PrettyPrint for Identifier {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
-        let indent_str = "  ".repeat(indent);
-        writeln!(f, "{}Identifier({})", indent_str, self.name)
+        writeln!(f, "{}Identifier({})", ind(indent), self.name)
     }
 }

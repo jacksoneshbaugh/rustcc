@@ -1,8 +1,9 @@
 use crate::compile_error::CompileError;
-use crate::lexer::TokenKind::{CloseBrace, CloseParen, IdentifierToken, Int, OpenBrace, OpenParen, Semicolon, Void};
+use crate::lexer::TokenKind::{CloseBrace, CloseParen, Colon, IdentifierToken, Int, OpenBrace, OpenParen, QuestionMark, Semicolon, Void};
 use crate::lexer::{Token, TokenKind};
 use crate::parser::{AssignOp, BinaryOperator, BlockItem, Declaration, Expression, Function, Identifier, Program, Statement, UnaryOperator};
 use std::collections::VecDeque;
+use crate::parser::Expression::Ternary;
 
 /**
 Entry point for parsing. Uses recursive descent.
@@ -92,6 +93,22 @@ Parses a statement. Expects the statement to be the next occurring AST element i
 Returns the Statement.
 */
 fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Statement, CompileError> {
+    // <statement> ::= "return" <exp> ";"
+    //               | <exp> ";"
+    //               | "if" "(" <exp> ")" <statement> [ "else" <statement> ]
+    //               | "goto" <identifier> ";"
+    //               | ";"
+
+    // label: <identifier> ":" <statement>
+    if matches!(tokens.front().map(|t| t.kind), Some(IdentifierToken))
+        && matches!(tokens.get(1).map(|t| t.kind), Some(Colon))
+    {
+        let lab = parse_identifier(tokens)?;   // consumes identifier
+        expect(Colon, tokens)?;                         // consumes ':'
+        let stmt = parse_statement(tokens)?;  // labeled statement is any statement
+        return Ok(Statement::Label(lab, Box::new(stmt)));
+    }
+
     match tokens.front().map(|t| t.kind) {
         Some(TokenKind::Return) => {
             tokens.pop_front();
@@ -102,7 +119,37 @@ fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Statement, CompileErr
         Some(Semicolon) => {
             tokens.pop_front();
             Ok(Statement::Null)
-        }
+        },
+
+        Some(TokenKind::If) => {
+          tokens.pop_front(); // get rid of the "if"
+            expect(OpenParen, tokens)?;
+            let condition = parse_expression(tokens, 0)?;
+            expect(CloseParen, tokens)?;
+            let then = parse_statement(tokens)?;
+
+            match tokens.front().map(|t| t.kind) {
+                Some(TokenKind::Else) => {
+                    tokens.pop_front(); // get rid of the "else"
+                    let el = parse_statement(tokens)?;
+
+                    Ok(Statement::If(condition, Box::new(then), Some(Box::new(el))))
+                },
+                _ => Ok(Statement::If(condition, Box::new(then), None)),
+            }
+
+        },
+
+        Some(TokenKind::Goto) => {
+            // goto <identifier>;
+
+            tokens.pop_front(); // get rid of the goto
+            let ident = parse_identifier(tokens)?;
+            expect(Semicolon, tokens)?;
+
+            Ok(Statement::Goto(ident))
+        },
+
         Some(_) => {
             let e = parse_expression(tokens, 0)?;
             expect(Semicolon, tokens)?;
@@ -152,6 +199,8 @@ fn parse_assign_op(tokens: &mut VecDeque<Token>) -> Result<AssignOp, CompileErro
 Parses an expression. Expects the expression to be the next occuring AST element in the list. Returns the Expression.
 */
 fn parse_expression(tokens: &mut VecDeque<Token>, min_prec: i32) -> Result<Expression, CompileError> {
+    // <exp> ::= <factor> | <exp> <binop> <exp> | <exp> "?" <exp> ":" <exp>
+
     let mut left = parse_factor(tokens)?;
 
     loop {
@@ -164,16 +213,23 @@ fn parse_expression(tokens: &mut VecDeque<Token>, min_prec: i32) -> Result<Expre
         let k = tokens.front().unwrap().kind;
 
         if is_assignment_kind(k) {
-            // right-associative: use op_prec (NOT op_prec+1)
+            // right-associative: use op_prec
             let op_tok = tokens.front().cloned().unwrap();
             let op_prec = precedence(&op_tok).unwrap();
 
             let op = parse_assign_op(tokens)?;
             let right = parse_expression(tokens, op_prec)?; // right-assoc
 
-            // (optional) enforce LHS is assignable
-            // you can do this here or later in semantic analysis
             left = Expression::Assignment(op, Box::new(left), Box::new(right));
+        } else if k == QuestionMark {
+            // conditional operator
+            tokens.pop_front(); // consume "?"
+            let middle = parse_expression(tokens, 0)?;
+            expect(Colon, tokens)?;
+
+            let q_prec = precedence(&Token { kind: QuestionMark, value: None }).unwrap();
+            let right = parse_expression(tokens, q_prec)?;
+            left = Ternary(Box::new(left), Box::new(middle), Box::new(right));
         } else {
             let op_prec = {
                 let t = tokens.front().ok_or_else(|| CompileError::Syntax("Unexpected EOF".into()))?;
@@ -201,6 +257,8 @@ fn precedence(token: &Token) -> Option<i32> {
         BitwiseOr => Some(23),
         LogicalAnd => Some(20),
         LogicalOr => Some(15),
+
+        QuestionMark => Some(3),
 
         // assignment family (all same, very low)
         Assignment

@@ -11,7 +11,7 @@ Jackson Eshbaugh
 Written while following "Writing a C Compiler" by Nora Sandler
 */
 
-pub fn resolve_program(program: Program) -> Result<Program, CompileError> {
+pub fn resolve_variables(program: Program) -> Result<Program, CompileError> {
     let mut variable_map: HashMap<Identifier, Identifier> = HashMap::new();
     let mut name_gen = NameGen::new();
 
@@ -98,6 +98,30 @@ fn resolve_statement(
     match statement {
         Statement::Return(e) => Ok(Statement::Return(resolve_expression(e, variable_map, name_gen)?)),
         Statement::Expression(e) => Ok(Statement::Expression(resolve_expression(e, variable_map, name_gen)?)),
+        Statement::If(cond, then, el) => {
+            match el {
+                Some(statement) => {
+                    Ok(Statement::If(
+                        resolve_expression(cond, variable_map, name_gen)?,
+                        Box::new(resolve_statement(*then, variable_map, name_gen)?),
+                        Some(Box::new(resolve_statement(*statement, variable_map, name_gen)?)),
+                    ))
+                },
+                None => {
+                    Ok(Statement::If(
+                        resolve_expression(cond, variable_map, name_gen)?,
+                        Box::new(resolve_statement(*then, variable_map, name_gen)?),
+                        None
+                    ))
+                }
+            }
+        }
+        Statement::Goto(ident) => Ok(Statement::Goto(ident)),
+        Statement::Label(ident, statement_box) =>
+            Ok(Statement::Label(
+                ident,
+                Box::new(resolve_statement(*statement_box, variable_map, name_gen)?),
+            )),
         Statement::Null => Ok(Statement::Null),
     }
 }
@@ -115,46 +139,64 @@ fn resolve_expression(
         Expression::Unary(op, inner) => {
             let inner = resolve_expression(*inner, variable_map, name_gen)?;
             Expression::Unary(op, Box::new(inner))
-        }
+        },
+
+        Expression::Ternary(condition, then, else_stmt) => {
+            Expression::Ternary(
+                Box::new(resolve_expression(*condition, variable_map, name_gen)?),
+                Box::new(resolve_expression(*then, variable_map, name_gen)?),
+                Box::new(resolve_expression(*else_stmt, variable_map, name_gen)?)
+            )
+        },
 
         Expression::Binary(op, left, right) => {
             let left = resolve_expression(*left, variable_map, name_gen)?;
             let right = resolve_expression(*right, variable_map, name_gen)?;
             Expression::Binary(op, Box::new(left), Box::new(right))
-        }
+        },
 
         Expression::Assignment(op, left, right) => {
             let left = resolve_lvalue(*left, variable_map)?;
             let right = resolve_expression(*right, variable_map, name_gen)?;
             Expression::Assignment(op, Box::new(left), Box::new(right))
-        }
+        },
 
         Expression::PreInc(inner) => {
             let inner = resolve_lvalue(*inner, variable_map)?;
             Expression::PreInc(Box::new(inner))
-        }
+        },
         Expression::PreDec(inner) => {
             let inner = resolve_lvalue(*inner, variable_map)?;
             Expression::PreDec(Box::new(inner))
-        }
+        },
         Expression::PostInc(inner) => {
             let inner = resolve_lvalue(*inner, variable_map)?;
             Expression::PostInc(Box::new(inner))
-        }
+        },
         Expression::PostDec(inner) => {
             let inner = resolve_lvalue(*inner, variable_map)?;
             Expression::PostDec(Box::new(inner))
-        }
+        },
     })
 }
 
 fn resolve_lvalue(
     expression: Expression,
-    variable_map: &mut HashMap<Identifier, Identifier>
+    variable_map: &HashMap<Identifier, Identifier>,
 ) -> Result<Expression, CompileError> {
     match expression {
-        Expression::Variable(id) => Ok(Expression::Variable(resolve_identifier(id, variable_map)?)),
-        _ => Err(CompileError::Syntax("Expected assignable expression.".to_string()))
+        Expression::Variable(id) => {
+            Ok(Expression::Variable(resolve_identifier(id, variable_map)?))
+        }
+
+        // common “bad lvalues” in this project stage:
+        Expression::Ternary(_, _, _) => Err(CompileError::Semantic(
+            "Conditional expression is not assignable".to_string(),
+        )),
+
+        _ => Err(CompileError::Semantic(
+            "Left-hand side of assignment must be an assignable expression".to_string(),
+        )),
     }
 }
 
