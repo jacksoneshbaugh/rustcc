@@ -27,12 +27,35 @@ pub enum Declaration {
     Declaration(Identifier, Option<Expression>),
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum AssignOp {
+    Assign,        // =
+    AddAssign,     // +=
+    SubAssign,     // -=
+    MulAssign,     // *=
+    DivAssign,     // /=
+    ModAssign,     // %=
+    AndAssign,     // &=
+    OrAssign,      // |=
+    XorAssign,     // ^=
+    ShlAssign,     // <<=
+    ShrAssign,     // >>=
+}
+
 pub enum Expression {
     Constant(i32),
     Variable(Identifier),
+
     Unary(UnaryOperator, Box<Expression>),
     Binary(BinaryOperator, Box<Expression>, Box<Expression>),
-    Assignment(Box<Expression>, Box<Expression>),
+
+    // assignment family
+    Assignment(AssignOp, Box<Expression>, Box<Expression>),
+
+    PreInc(Box<Expression>),
+    PreDec(Box<Expression>),
+    PostInc(Box<Expression>),
+    PostDec(Box<Expression>),
 }
 
 pub enum UnaryOperator {

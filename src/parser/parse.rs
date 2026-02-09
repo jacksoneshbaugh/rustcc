@@ -1,9 +1,7 @@
 use crate::compile_error::CompileError;
-use crate::lexer::TokenKind::{Assignment, CloseBrace, CloseParen, IdentifierToken, Int, OpenBrace, OpenParen, Semicolon, Void};
+use crate::lexer::TokenKind::{CloseBrace, CloseParen, IdentifierToken, Int, OpenBrace, OpenParen, Semicolon, Void};
 use crate::lexer::{Token, TokenKind};
-use crate::parser::Expression::{Constant, Unary};
-use crate::parser::UnaryOperator::{Complement, Negate, Not};
-use crate::parser::{BinaryOperator, BlockItem, Declaration, Expression, Function, Identifier, Program, Statement};
+use crate::parser::{AssignOp, BinaryOperator, BlockItem, Declaration, Expression, Function, Identifier, Program, Statement, UnaryOperator};
 use std::collections::VecDeque;
 
 /**
@@ -114,6 +112,42 @@ fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Statement, CompileErr
     }
 }
 
+fn is_assignment_kind(k: TokenKind) -> bool {
+    use TokenKind::*;
+    matches!(
+        k,
+        Assignment
+            | AddAssign | SubtractAssign | MultiplyAssign | DivAssign | ModAssign
+            | AndAssign | OrAssign | XorAssign
+            | LeftShiftAssign | RightShiftAssign
+    )
+}
+
+fn parse_assign_op(tokens: &mut VecDeque<Token>) -> Result<AssignOp, CompileError> {
+    use TokenKind::*;
+    let tok = tokens.pop_front().ok_or_else(|| CompileError::Syntax("Unexpected EOF".into()))?;
+    let op = match tok.kind {
+        Assignment => AssignOp::Assign,
+        AddAssign => AssignOp::AddAssign,
+        SubtractAssign => AssignOp::SubAssign,
+        MultiplyAssign => AssignOp::MulAssign,
+        DivAssign => AssignOp::DivAssign,
+        ModAssign => AssignOp::ModAssign,
+        AndAssign => AssignOp::AndAssign,
+        OrAssign => AssignOp::OrAssign,
+        XorAssign => AssignOp::XorAssign,
+        LeftShiftAssign => AssignOp::ShlAssign,
+        RightShiftAssign => AssignOp::ShrAssign,
+        other => {
+            return Err(CompileError::Syntax(format!(
+                "Expected assignment operator, got {}",
+                other
+            )))
+        }
+    };
+    Ok(op)
+}
+
 /**
 Parses an expression. Expects the expression to be the next occuring AST element in the list. Returns the Expression.
 */
@@ -127,19 +161,24 @@ fn parse_expression(tokens: &mut VecDeque<Token>, min_prec: i32) -> Result<Expre
         };
         if !proceed { break; }
 
-        if tokens.front().unwrap().kind == Assignment {
-            // assignment is right-associative
-            let op_tok = tokens.pop_front().unwrap();
-            let op_prec = precedence(&op_tok).unwrap(); // should be the lowest precedence
+        let k = tokens.front().unwrap().kind;
 
-            let right = parse_expression(tokens, op_prec)?; // NOTE: op_prec, not op_prec + 1
-            left = Expression::Assignment(Box::new(left), Box::new(right));
+        if is_assignment_kind(k) {
+            // right-associative: use op_prec (NOT op_prec+1)
+            let op_tok = tokens.front().cloned().unwrap();
+            let op_prec = precedence(&op_tok).unwrap();
+
+            let op = parse_assign_op(tokens)?;
+            let right = parse_expression(tokens, op_prec)?; // right-assoc
+
+            // (optional) enforce LHS is assignable
+            // you can do this here or later in semantic analysis
+            left = Expression::Assignment(op, Box::new(left), Box::new(right));
         } else {
             let op_prec = {
-                let t = tokens.front().ok_or_else(|| CompileError::Syntax("Unexpected end of tokens.".to_string()))?;
-                precedence(t).expect("internal: expected an operator token with precedence")
+                let t = tokens.front().ok_or_else(|| CompileError::Syntax("Unexpected EOF".into()))?;
+                precedence(t).unwrap()
             };
-
             let operator = parse_binop(tokens)?;
             let right = parse_expression(tokens, op_prec + 1)?;
             left = Expression::Binary(operator, Box::new(left), Box::new(right));
@@ -162,7 +201,13 @@ fn precedence(token: &Token) -> Option<i32> {
         BitwiseOr => Some(23),
         LogicalAnd => Some(20),
         LogicalOr => Some(15),
-        Assignment => Some(1),
+
+        // assignment family (all same, very low)
+        Assignment
+        | AddAssign | SubtractAssign | MultiplyAssign | DivAssign | ModAssign
+        | AndAssign | OrAssign | XorAssign
+        | LeftShiftAssign | RightShiftAssign => Some(1),
+
         _ => None,
     }
 }
@@ -233,44 +278,91 @@ Parses a factor expression. Expects the factor to be the next occurring AST elem
 Returns the Expression.
 */
 fn parse_factor(tokens: &mut VecDeque<Token>) -> Result<Expression, CompileError> {
-    // <factor> ::= <int> | <identifier> | <unop> <factor> | "(" <exp> ")"
+    use TokenKind::*;
 
-    // Peek at the next token's kind in a short scope to avoid borrow conflicts
-    let next_kind = {
-        let t = tokens.front().ok_or_else(|| {
-            CompileError::Syntax("Unexpected end of tokens.".to_string())
-        })?;
-        t.kind
-    };
+    let next_kind = tokens
+        .front()
+        .ok_or_else(|| CompileError::Syntax("Unexpected end of tokens.".to_string()))?
+        .kind;
 
     match next_kind {
-        TokenKind::Constant => Ok(Constant(parse_int(tokens)?)),
+        // literals
+        Constant => Ok(Expression::Constant(parse_int(tokens)?)),
 
-        TokenKind::IdentifierToken => {
+        // identifiers (possibly followed by postfix ++/--)
+        IdentifierToken => {
             let id = parse_identifier(tokens)?;
-            Ok(Expression::Variable(id))
+            let mut expr = Expression::Variable(id);
+
+            match tokens.front().map(|t| t.kind) {
+                Some(Increment) => {
+                    tokens.pop_front(); // consume '++'
+                    expr = Expression::PostInc(Box::new(expr));
+                }
+                Some(Decrement) => {
+                    tokens.pop_front(); // consume '--'
+                    expr = Expression::PostDec(Box::new(expr));
+                }
+                _ => {}
+            }
+
+            Ok(expr)
         }
 
-        TokenKind::BitwiseComplement => {
-            tokens.pop_front();
-            Ok(Unary(Complement, Box::new(parse_factor(tokens)?)))
+        // prefix ++/--
+        Increment => {
+            tokens.pop_front(); // consume '++'
+            // must apply to a factor that is an lvalue (at least variable for now)
+            let inner = parse_factor(tokens)?;
+            Ok(Expression::PreInc(Box::new(inner)))
+        }
+        Decrement => {
+            tokens.pop_front(); // consume '--'
+            let inner = parse_factor(tokens)?;
+            Ok(Expression::PreDec(Box::new(inner)))
         }
 
-        TokenKind::Minus => {
+        // unary operators
+        BitwiseComplement => {
             tokens.pop_front();
-            Ok(Unary(Negate, Box::new(parse_factor(tokens)?)))
+            Ok(Expression::Unary(
+                UnaryOperator::Complement,
+                Box::new(parse_factor(tokens)?),
+            ))
+        }
+        Minus => {
+            tokens.pop_front();
+            Ok(Expression::Unary(
+                UnaryOperator::Negate,
+                Box::new(parse_factor(tokens)?),
+            ))
+        }
+        LogicalNot => {
+            tokens.pop_front();
+            Ok(Expression::Unary(
+                UnaryOperator::Not,
+                Box::new(parse_factor(tokens)?),
+            ))
         }
 
-        TokenKind::LogicalNot => {
+        // parenthesized expression (optionally followed by postfix ++/--)
+        OpenParen => {
             tokens.pop_front();
-            Ok(Unary(Not, Box::new(parse_factor(tokens)?)))
-        }
-
-        TokenKind::OpenParen => {
-            tokens.pop_front();
-            let exp = parse_expression(tokens, 0)?;
+            let inner = parse_expression(tokens, 0)?;
             expect(CloseParen, tokens)?;
-            Ok(exp)
+
+            // If you want to allow `(x)++` etc., support postfix here too:
+            match tokens.front().map(|t| t.kind) {
+                Some(Increment) => {
+                    tokens.pop_front();
+                    Ok(Expression::PostInc(Box::new(inner)))
+                }
+                Some(Decrement) => {
+                    tokens.pop_front();
+                    Ok(Expression::PostDec(Box::new(inner)))
+                }
+                _ => Ok(inner),
+            }
         }
 
         _ => Err(CompileError::Syntax(format!(

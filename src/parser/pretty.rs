@@ -50,7 +50,7 @@ impl PrettyPrint for BlockItem {
                 writeln!(f, "{})", indent_str)
             }
             BlockItem::Declaration(decl) => {
-                writeln!(f, "{}Declaration(", indent_str)?;
+                writeln!(f, "{}DeclarationItem(", indent_str)?;
                 decl.pretty_print(f, indent + 1)?;
                 writeln!(f, "{})", indent_str)
             }
@@ -69,13 +69,11 @@ impl PrettyPrint for Statement {
                 writeln!(f, "{})", indent_str)
             }
             Statement::Expression(exp) => {
-                writeln!(f, "{}Expression(", indent_str)?;
+                writeln!(f, "{}ExpressionStmt(", indent_str)?;
                 exp.pretty_print(f, indent + 1)?;
                 writeln!(f, "{})", indent_str)
             }
-            Statement::Null => {
-                writeln!(f, "{}Null", indent_str)
-            }
+            Statement::Null => writeln!(f, "{}Null", indent_str),
         }
     }
 }
@@ -117,6 +115,7 @@ impl PrettyPrint for Expression {
 
             Expression::Unary(op, expr) => {
                 writeln!(f, "{}Unary(", indent_str)?;
+                write!(f, "{}", "  ".repeat(indent + 1))?;
                 op.pretty_print(f, indent + 1)?;
                 writeln!(f, ",")?;
                 expr.pretty_print(f, indent + 1)?;
@@ -125,6 +124,7 @@ impl PrettyPrint for Expression {
 
             Expression::Binary(op, left, right) => {
                 writeln!(f, "{}Binary(", indent_str)?;
+                write!(f, "{}", "  ".repeat(indent + 1))?;
                 op.pretty_print(f, indent + 1)?;
                 writeln!(f, ",")?;
                 left.pretty_print(f, indent + 1)?;
@@ -133,14 +133,57 @@ impl PrettyPrint for Expression {
                 writeln!(f, "{})", indent_str)
             }
 
-            Expression::Assignment(lhs, rhs) => {
+            Expression::Assignment(assign_op, lhs, rhs) => {
                 writeln!(f, "{}Assignment(", indent_str)?;
+                write!(f, "{}", "  ".repeat(indent + 1))?;
+                assign_op.pretty_print(f, indent + 1)?;
+                writeln!(f, ",")?;
                 lhs.pretty_print(f, indent + 1)?;
                 writeln!(f, ",")?;
                 rhs.pretty_print(f, indent + 1)?;
                 writeln!(f, "{})", indent_str)
             }
+
+            Expression::PreInc(expr) => {
+                writeln!(f, "{}PreInc(", indent_str)?;
+                expr.pretty_print(f, indent + 1)?;
+                writeln!(f, "{})", indent_str)
+            }
+            Expression::PreDec(expr) => {
+                writeln!(f, "{}PreDec(", indent_str)?;
+                expr.pretty_print(f, indent + 1)?;
+                writeln!(f, "{})", indent_str)
+            }
+            Expression::PostInc(expr) => {
+                writeln!(f, "{}PostInc(", indent_str)?;
+                expr.pretty_print(f, indent + 1)?;
+                writeln!(f, "{})", indent_str)
+            }
+            Expression::PostDec(expr) => {
+                writeln!(f, "{}PostDec(", indent_str)?;
+                expr.pretty_print(f, indent + 1)?;
+                writeln!(f, "{})", indent_str)
+            }
         }
+    }
+}
+
+impl PrettyPrint for AssignOp {
+    fn pretty_print(&self, f: &mut Formatter, _indent: usize) -> fmt::Result {
+        let s = match self {
+            AssignOp::Assign => "Assign(=)",
+            AssignOp::AddAssign => "AddAssign(+=)",
+            AssignOp::SubAssign => "SubAssign(-=)",
+            AssignOp::MulAssign => "MulAssign(*=)",
+            AssignOp::DivAssign => "DivAssign(/=)",
+            AssignOp::ModAssign => "ModAssign(%=)",
+            AssignOp::AndAssign => "AndAssign(&=)",
+            AssignOp::OrAssign => "OrAssign(|=)",
+            AssignOp::XorAssign => "XorAssign(^=)",
+            AssignOp::ShlAssign => "ShlAssign(<<=)",
+            AssignOp::ShrAssign => "ShrAssign(>>=)",
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -184,7 +227,8 @@ impl PrettyPrint for BinaryOperator {
 }
 
 impl PrettyPrint for Identifier {
-    fn pretty_print(&self, f: &mut Formatter, _indent: usize) -> fmt::Result {
-        writeln!(f, "Identifier({})", self.name)
+    fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
+        let indent_str = "  ".repeat(indent);
+        writeln!(f, "{}Identifier({})", indent_str, self.name)
     }
 }

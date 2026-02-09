@@ -1,7 +1,8 @@
 use crate::compile_error::CompileError;
-use crate::parser::{BinaryOperator, BlockItem, Declaration, Expression, Function, Identifier, Program, Statement};
+use crate::parser::BinaryOperator::{Add, BitwiseAnd, BitwiseOr, Divide, LeftShift, Multiply, Remainder, RightShift, Subtract, Xor};
+use crate::parser::{AssignOp, BinaryOperator, BlockItem, Declaration, Expression, Function, Identifier, Program, Statement};
 use crate::tacky::ast::{TACKYFunction, TACKYInstruction, TACKYPlace, TACKYProgram, TACKYValue};
-use crate::tacky::TACKYInstruction::Copy;
+use crate::tacky::TACKYInstruction::{Binary, Copy};
 use crate::tacky::TACKYValue::Variable;
 
 /**
@@ -99,6 +100,28 @@ fn tackify_statement(parsed_stmt: Statement, allocator: &mut TempAllocator) -> R
     }
 }
 
+fn tackify_compound_assign(
+    op: BinaryOperator,
+    left: Expression,
+    right: Expression,
+    allocator: &mut TempAllocator
+) -> Result<(Vec<TACKYInstruction>, TACKYValue), CompileError> {
+
+    // tmp = (lhs <op> rhs);
+    // lhs = tmp;
+    // value is lhs
+
+    let place = tackify_place(left)?;
+    let lhs_value = TACKYValue::Variable(place.0.clone());
+    let (mut instrs, rhs_value) = tackify_expression(right, allocator)?;
+
+    let tmp = allocator.new_place();
+    instrs.push(Binary(op, lhs_value, rhs_value, tmp.clone()));
+    instrs.push(Copy(Variable(tmp.0.clone()), place.clone()));
+
+    Ok((instrs, Variable(place.0)))
+}
+
 fn tackify_expression(
     parsed_expr: Expression,
     allocator: &mut TempAllocator,
@@ -108,11 +131,163 @@ fn tackify_expression(
 
         Expression::Variable(identifier) => Ok((vec![], TACKYValue::Variable(identifier))),
 
-        Expression::Assignment(left, right) => {
-            let place = tackify_place(*left)?;
-            let (mut instrs, rhs) = tackify_expression(*right, allocator)?;
-            instrs.push(Copy(rhs.clone(), place.clone()));
-            Ok((instrs, Variable(place.0)))
+        Expression::Assignment(operator, left, right) => {
+            match operator {
+
+                // default assignment operator
+                AssignOp::Assign => {
+                    let place = tackify_place(*left)?; // lhs must be a place
+
+                    // evaluate the rhs
+                    let (mut instrs, rhs) = tackify_expression(*right, allocator)?;
+
+                    // copy the value from the rhs to the lhs
+                    instrs.push(Copy(rhs.clone(), place.clone()));
+                    Ok((instrs, Variable(place.0)))
+                },
+
+                // compound assignment operators
+                AssignOp::AddAssign => tackify_compound_assign(Add, *left, *right, allocator),
+                AssignOp::SubAssign => tackify_compound_assign(Subtract, *left, *right, allocator),
+                AssignOp::MulAssign => tackify_compound_assign(Multiply, *left, *right, allocator),
+                AssignOp::DivAssign => tackify_compound_assign(Divide, *left, *right, allocator),
+                AssignOp::ModAssign => tackify_compound_assign(Remainder, *left, *right, allocator),
+                AssignOp::AndAssign => tackify_compound_assign(BitwiseAnd, *left, *right, allocator),
+                AssignOp::OrAssign => tackify_compound_assign(BitwiseOr, *left, *right, allocator),
+                AssignOp::XorAssign => tackify_compound_assign(Xor, *left, *right, allocator),
+                AssignOp::ShlAssign => tackify_compound_assign(LeftShift, *left, *right, allocator),
+                AssignOp::ShrAssign => tackify_compound_assign(RightShift, *left, *right, allocator)
+            }
+        },
+
+        // increment
+        Expression::PreInc(inner) => {
+            // ++x:
+            //   tmp = x + 1
+            //   x = tmp
+            //   value is x (new value)
+
+            let place = tackify_place(*inner)?; // must be assignable (variable for now)
+            let lhs_val = TACKYValue::Variable(place.0.clone());
+
+            let tmp = allocator.new_place();
+
+            let mut instrs = Vec::new();
+            instrs.push(TACKYInstruction::Binary(
+                BinaryOperator::Add,
+                lhs_val,
+                TACKYValue::Constant(1),
+                tmp.clone(),
+            ));
+            instrs.push(TACKYInstruction::Copy(
+                TACKYValue::Variable(tmp.0.clone()),
+                place.clone(),
+            ));
+
+            Ok((instrs, TACKYValue::Variable(place.0)))
+
+        },
+
+        Expression::PostInc(inner) => {
+            // x++:
+            //   old = x
+            //   tmp = x + 1
+            //   x = tmp
+            //   value is old
+
+            let place = tackify_place(*inner)?;
+            let lhs_val = TACKYValue::Variable(place.0.clone());
+
+            let old = allocator.new_place();
+            let tmp = allocator.new_place();
+
+            let mut instrs = Vec::new();
+
+            // old = x
+            instrs.push(Copy(lhs_val.clone(), old.clone()));
+
+            // tmp = x + 1
+            instrs.push(TACKYInstruction::Binary(
+                BinaryOperator::Add,
+                lhs_val,
+                TACKYValue::Constant(1),
+                tmp.clone(),
+            ));
+
+            // x = tmp
+            instrs.push(TACKYInstruction::Copy(
+                TACKYValue::Variable(tmp.0.clone()),
+                place.clone()
+            ));
+
+            // value is old
+            Ok((instrs, TACKYValue::Variable(old.0)))
+
+        },
+
+        // increment
+        Expression::PreDec(inner) => {
+            // --x:
+            //   tmp = x - 1
+            //   x = tmp
+            //   value is x (new value)
+
+            let place = tackify_place(*inner)?; // must be assignable (variable for now)
+            let lhs_val = TACKYValue::Variable(place.0.clone());
+
+            let tmp = allocator.new_place();
+
+            let mut instrs = Vec::new();
+            instrs.push(TACKYInstruction::Binary(
+                BinaryOperator::Subtract,
+                lhs_val,
+                TACKYValue::Constant(1),
+                tmp.clone(),
+            ));
+            instrs.push(TACKYInstruction::Copy(
+                TACKYValue::Variable(tmp.0.clone()),
+                place.clone(),
+            ));
+
+            Ok((instrs, TACKYValue::Variable(place.0)))
+
+        },
+
+        Expression::PostDec(inner) => {
+            // x--:
+            //   old = x
+            //   tmp = x - 1
+            //   x = tmp
+            //   value is old
+
+            let place = tackify_place(*inner)?;
+            let lhs_val = TACKYValue::Variable(place.0.clone());
+
+            let old = allocator.new_place();
+            let tmp = allocator.new_place();
+
+            let mut instrs = Vec::new();
+
+            // old = x
+            instrs.push(Copy(lhs_val.clone(), old.clone()));
+
+            // tmp = x + 1
+            instrs.push(TACKYInstruction::Binary(
+                BinaryOperator::Subtract,
+                lhs_val,
+                TACKYValue::Constant(1),
+                tmp.clone(),
+            ));
+
+            // x = tmp
+            instrs.push(TACKYInstruction::Copy(
+                TACKYValue::Variable(tmp.0.clone()),
+                place.clone()
+            ));
+
+            // value is old
+            Ok((instrs, TACKYValue::Variable(old.0)))
+
         },
 
         Expression::Unary(op, inner) => {

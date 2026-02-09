@@ -103,29 +103,12 @@ fn resolve_statement(
 }
 
 fn resolve_expression(
-    expression: Expression,
+    expr: Expression,
     variable_map: &mut HashMap<Identifier, Identifier>,
     name_gen: &mut NameGen,
 ) -> Result<Expression, CompileError> {
-    Ok(match expression {
-        Expression::Assignment(left, right) => {
-            let lhs_ident = match *left {
-                Expression::Variable(id) => id,
-                _ => {
-                    return Err(CompileError::Syntax(
-                        "Left-hand side of assignment must be a variable".to_string(),
-                    ));
-                }
-            };
-
-            let new_lhs = resolve_identifier(lhs_ident, variable_map)?;
-            let new_rhs = resolve_expression(*right, variable_map, name_gen)?;
-
-            Expression::Assignment(
-                Box::new(Expression::Variable(new_lhs)),
-                Box::new(new_rhs),
-            )
-        }
+    Ok(match expr {
+        Expression::Constant(n) => Expression::Constant(n),
 
         Expression::Variable(id) => Expression::Variable(resolve_identifier(id, variable_map)?),
 
@@ -140,8 +123,39 @@ fn resolve_expression(
             Expression::Binary(op, Box::new(left), Box::new(right))
         }
 
-        Expression::Constant(n) => Expression::Constant(n),
+        Expression::Assignment(op, left, right) => {
+            let left = resolve_lvalue(*left, variable_map)?;
+            let right = resolve_expression(*right, variable_map, name_gen)?;
+            Expression::Assignment(op, Box::new(left), Box::new(right))
+        }
+
+        Expression::PreInc(inner) => {
+            let inner = resolve_lvalue(*inner, variable_map)?;
+            Expression::PreInc(Box::new(inner))
+        }
+        Expression::PreDec(inner) => {
+            let inner = resolve_lvalue(*inner, variable_map)?;
+            Expression::PreDec(Box::new(inner))
+        }
+        Expression::PostInc(inner) => {
+            let inner = resolve_lvalue(*inner, variable_map)?;
+            Expression::PostInc(Box::new(inner))
+        }
+        Expression::PostDec(inner) => {
+            let inner = resolve_lvalue(*inner, variable_map)?;
+            Expression::PostDec(Box::new(inner))
+        }
     })
+}
+
+fn resolve_lvalue(
+    expression: Expression,
+    variable_map: &mut HashMap<Identifier, Identifier>
+) -> Result<Expression, CompileError> {
+    match expression {
+        Expression::Variable(id) => Ok(Expression::Variable(resolve_identifier(id, variable_map)?)),
+        _ => Err(CompileError::Syntax("Expected assignable expression.".to_string()))
+    }
 }
 
 fn resolve_identifier(

@@ -7,7 +7,7 @@ Written while following the book "Writing a C Compiler" by Nora Sandler.
 
 use regex::Regex;
 use crate::compile_error::CompileError;
-use crate::lexer::TokenKind::{Assignment, Asterisk, BitwiseAnd, BitwiseComplement, BitwiseOr, CloseBrace, CloseParen, Constant, Decrement, EqualTo, ForwardSlash, GreaterEq, GreaterThan, IdentifierToken, Int, LeftShift, LessEq, LessThan, LogicalAnd, LogicalNot, LogicalOr, Minus, NotEqual, OpenBrace, OpenParen, Percent, Plus, Return, RightShift, Semicolon, Void, Xor};
+use crate::lexer::TokenKind::{AddAssign, AndAssign, Assignment, Asterisk, BitwiseAnd, BitwiseComplement, BitwiseOr, CloseBrace, CloseParen, Constant, Decrement, DivAssign, EqualTo, ForwardSlash, GreaterEq, GreaterThan, IdentifierToken, Increment, Int, LeftShift, LeftShiftAssign, LessEq, LessThan, LogicalAnd, LogicalNot, LogicalOr, Minus, ModAssign, MultiplyAssign, NotEqual, OpenBrace, OpenParen, OrAssign, Percent, Plus, Return, RightShift, RightShiftAssign, Semicolon, SubtractAssign, Void, Xor, XorAssign};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
@@ -18,8 +18,10 @@ pub enum TokenKind {
     IdentifierToken, Constant,
 
     // operators (multi)
-    Decrement, LogicalAnd, LogicalOr, LeftShift, RightShift,
-    LessEq, GreaterEq, NotEqual, EqualTo,
+    Increment, Decrement, LogicalAnd, LogicalOr, LeftShift, RightShift,
+    LessEq, GreaterEq, NotEqual, EqualTo, AddAssign, SubtractAssign,
+    MultiplyAssign, DivAssign, ModAssign, AndAssign, OrAssign, XorAssign,
+    LeftShiftAssign, RightShiftAssign,
 
     // operators (single)
     LogicalNot, LessThan, GreaterThan, BitwiseAnd, BitwiseOr,
@@ -44,6 +46,7 @@ impl std::fmt::Display for TokenKind {
             Constant => "constant",
 
             // multi-char operators
+            Increment => "++",
             Decrement => "--",
             LogicalAnd => "&&",
             LogicalOr => "||",
@@ -53,6 +56,16 @@ impl std::fmt::Display for TokenKind {
             GreaterEq => ">=",
             EqualTo => "==",
             NotEqual => "!=",
+            AddAssign => "+=",
+            SubtractAssign => "-=",
+            MultiplyAssign => "*=",
+            DivAssign => "/=",
+            ModAssign => "%=",
+            AndAssign => "&=",
+            OrAssign => "|=",
+            XorAssign => "^=",
+            LeftShiftAssign => "<<=",
+            RightShiftAssign => ">>=",
 
             // single-char operators
             LogicalNot => "!",
@@ -114,15 +127,31 @@ pub fn lex(file: &str) -> Result<Vec<Token>, CompileError> {
         TokenDef { kind: Constant, pattern: Regex::new(r"^[0-9]+\b").unwrap() },
 
         // multi-char operators first
-        TokenDef { kind: Decrement, pattern: Regex::new(r"^--").unwrap() },
-        TokenDef { kind: LogicalAnd, pattern: Regex::new(r"^&&").unwrap() },
-        TokenDef { kind: LogicalOr, pattern: Regex::new(r"^\|\|").unwrap() },
-        TokenDef { kind: LeftShift, pattern: Regex::new(r"^<<").unwrap() },
-        TokenDef { kind: RightShift, pattern: Regex::new(r"^>>").unwrap() },
-        TokenDef { kind: LessEq, pattern: Regex::new(r"^<=").unwrap() },
-        TokenDef { kind: GreaterEq, pattern: Regex::new(r"^>=").unwrap() },
-        TokenDef { kind: NotEqual, pattern: Regex::new(r"^!=").unwrap() },
-        TokenDef { kind: EqualTo, pattern: Regex::new(r"^==").unwrap() },
+        TokenDef { kind: LeftShiftAssign,  pattern: Regex::new(r"^<<=").unwrap() },
+        TokenDef { kind: RightShiftAssign, pattern: Regex::new(r"^>>=").unwrap() },
+
+        TokenDef { kind: Increment,        pattern: Regex::new(r"^\+\+").unwrap() },
+        TokenDef { kind: Decrement,        pattern: Regex::new(r"^--").unwrap() },
+
+        TokenDef { kind: LogicalAnd,       pattern: Regex::new(r"^&&").unwrap() },
+        TokenDef { kind: LogicalOr,        pattern: Regex::new(r"^\|\|").unwrap() },
+
+        TokenDef { kind: LessEq,           pattern: Regex::new(r"^<=").unwrap() },
+        TokenDef { kind: GreaterEq,        pattern: Regex::new(r"^>=").unwrap() },
+        TokenDef { kind: EqualTo,          pattern: Regex::new(r"^==").unwrap() },
+        TokenDef { kind: NotEqual,         pattern: Regex::new(r"^!=").unwrap() },
+
+        TokenDef { kind: AddAssign,        pattern: Regex::new(r"^\+=").unwrap() },
+        TokenDef { kind: SubtractAssign,   pattern: Regex::new(r"^-=").unwrap() },
+        TokenDef { kind: MultiplyAssign,   pattern: Regex::new(r"^\*=").unwrap() },
+        TokenDef { kind: DivAssign,        pattern: Regex::new(r"^/=").unwrap() },
+        TokenDef { kind: ModAssign,        pattern: Regex::new(r"^%=").unwrap() },
+        TokenDef { kind: AndAssign,        pattern: Regex::new(r"^&=").unwrap() },
+        TokenDef { kind: OrAssign,         pattern: Regex::new(r"^\|=").unwrap() },
+        TokenDef { kind: XorAssign,        pattern: Regex::new(r"^\^=").unwrap() },
+
+        TokenDef { kind: LeftShift,        pattern: Regex::new(r"^<<").unwrap() },
+        TokenDef { kind: RightShift,       pattern: Regex::new(r"^>>").unwrap() },
 
         // single-char operators
         TokenDef { kind: LogicalNot, pattern: Regex::new(r"^!").unwrap() },
