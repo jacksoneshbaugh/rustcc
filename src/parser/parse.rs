@@ -1,7 +1,7 @@
 use crate::compile_error::CompileError;
 use crate::lexer::TokenKind::{CloseBrace, CloseParen, Colon, IdentifierToken, Int, OpenBrace, OpenParen, QuestionMark, Semicolon, Void};
 use crate::lexer::{Token, TokenKind};
-use crate::parser::{AssignOp, BinaryOperator, BlockItem, Declaration, Expression, Function, Identifier, Program, Statement, UnaryOperator};
+use crate::parser::{AssignOp, BinaryOperator, Block, BlockItem, Declaration, Expression, Function, Identifier, Program, Statement, UnaryOperator};
 use std::collections::VecDeque;
 use crate::parser::Expression::Ternary;
 
@@ -38,7 +38,7 @@ fn parse_function(tokens: &mut VecDeque<Token>) -> Result<Function, CompileError
 
     expect(CloseBrace, tokens)?;
 
-    Ok(Function { identifier, body: function_body })
+    Ok(Function { identifier, body: Block { items: function_body } })
 }
 
 fn parse_block_item(tokens: &mut VecDeque<Token>) -> Result<BlockItem, CompileError> {
@@ -88,6 +88,19 @@ fn parse_declaration(tokens: &mut VecDeque<Token>) -> Result<Declaration, Compil
     }
 }
 
+
+fn parse_block(tokens: &mut VecDeque<Token>) -> Result<Block, CompileError> {
+    // <block> ::= "{" { block item> } "}"
+    expect(OpenBrace, tokens)?;
+    let mut block_items: Vec<BlockItem> = vec![];
+    while tokens.front().map(|t| t.kind) != Some(CloseBrace) {
+        block_items.push(parse_block_item(tokens)?);
+    }
+    expect(CloseBrace, tokens)?;
+
+    Ok(Block{ items: block_items })
+}
+
 /**
 Parses a statement. Expects the statement to be the next occurring AST element in the list.
 Returns the Statement.
@@ -97,6 +110,7 @@ fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Statement, CompileErr
     //               | <exp> ";"
     //               | "if" "(" <exp> ")" <statement> [ "else" <statement> ]
     //               | "goto" <identifier> ";"
+    //               | <block>
     //               | ";"
 
     // label: <identifier> ":" <statement>
@@ -139,6 +153,8 @@ fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Statement, CompileErr
             }
 
         },
+
+        Some(TokenKind::OpenBrace) => Ok(Statement::Compound(parse_block(tokens)?)),
 
         Some(TokenKind::Goto) => {
             // goto <identifier>;

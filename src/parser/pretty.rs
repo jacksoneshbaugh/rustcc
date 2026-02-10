@@ -15,6 +15,8 @@ fn comma_line(f: &mut Formatter, indent: usize) -> fmt::Result {
     writeln!(f, "{},", ind(indent))
 }
 
+/* ---------------- Program / Function / Block ---------------- */
+
 impl PrettyPrint for Program {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
         writeln!(f, "{}Program(", ind(indent))?;
@@ -37,14 +39,27 @@ impl PrettyPrint for Function {
         comma_line(f, indent + 1)?;
 
         writeln!(f, "{}Body(", ind(indent + 1))?;
-        for item in &self.body {
-            item.pretty_print(f, indent + 2)?;
-        }
+        self.body.pretty_print(f, indent + 2)?;
         writeln!(f, "{})", ind(indent + 1))?;
 
         writeln!(f, "{})", ind(indent))
     }
 }
+
+impl PrettyPrint for Block {
+    fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
+        writeln!(f, "{}Block(", ind(indent))?;
+        for (i, item) in self.items.iter().enumerate() {
+            item.pretty_print(f, indent + 1)?;
+            if i + 1 != self.items.len() {
+                comma_line(f, indent + 1)?;
+            }
+        }
+        writeln!(f, "{})", ind(indent))
+    }
+}
+
+/* ---------------- BlockItem ---------------- */
 
 impl PrettyPrint for BlockItem {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
@@ -63,6 +78,8 @@ impl PrettyPrint for BlockItem {
     }
 }
 
+/* ---------------- Statements ---------------- */
+
 impl PrettyPrint for Statement {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
         match self {
@@ -71,9 +88,16 @@ impl PrettyPrint for Statement {
                 exp.pretty_print(f, indent + 1)?;
                 writeln!(f, "{})", ind(indent))
             }
+
             Statement::Expression(exp) => {
                 writeln!(f, "{}ExpressionStmt(", ind(indent))?;
                 exp.pretty_print(f, indent + 1)?;
+                writeln!(f, "{})", ind(indent))
+            }
+
+            Statement::Compound(block) => {
+                writeln!(f, "{}Compound(", ind(indent))?;
+                block.pretty_print(f, indent + 1)?;
                 writeln!(f, "{})", ind(indent))
             }
 
@@ -120,6 +144,8 @@ impl PrettyPrint for Statement {
     }
 }
 
+/* ---------------- Declarations ---------------- */
+
 impl PrettyPrint for Declaration {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
         match self {
@@ -146,6 +172,8 @@ impl PrettyPrint for Declaration {
     }
 }
 
+/* ---------------- Expressions ---------------- */
+
 impl PrettyPrint for Expression {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {
         match self {
@@ -157,7 +185,7 @@ impl PrettyPrint for Expression {
                 writeln!(f, "{}Unary(", ind(indent))?;
                 write!(f, "{}", ind(indent + 1))?;
                 op.pretty_print(f, indent + 1)?;
-                writeln!(f)?; // finish operator line
+                writeln!(f)?;
                 comma_line(f, indent + 1)?;
                 expr.pretty_print(f, indent + 1)?;
                 writeln!(f, "{})", ind(indent))
@@ -234,6 +262,8 @@ impl PrettyPrint for Expression {
     }
 }
 
+/* ---------------- Operators ---------------- */
+
 impl PrettyPrint for AssignOp {
     fn pretty_print(&self, f: &mut Formatter, _indent: usize) -> fmt::Result {
         let s = match self {
@@ -291,6 +321,8 @@ impl PrettyPrint for BinaryOperator {
         }
     }
 }
+
+/* ---------------- Identifier ---------------- */
 
 impl PrettyPrint for Identifier {
     fn pretty_print(&self, f: &mut Formatter, indent: usize) -> fmt::Result {

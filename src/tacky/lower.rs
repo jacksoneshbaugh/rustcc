@@ -48,7 +48,7 @@ fn tackify_function(
 ) -> Result<TACKYFunction, CompileError> {
     let mut instrs: Vec<TACKYInstruction> = Vec::new();
 
-    for item in parsed_fn.body {
+    for item in parsed_fn.body.items {
         let mut item_instrs = tackify_block_item(item, allocator)?;
         instrs.append(&mut item_instrs);
     }
@@ -128,6 +128,14 @@ fn tackify_statement(parsed_stmt: Statement, allocator: &mut TempAllocator) -> R
 
             Ok(instrs)
         },
+
+        Statement::Compound(block) => {
+            let mut instrs = Vec::new();
+            for block_item in block.items {
+                instrs.append(&mut tackify_block_item(block_item, allocator)?);
+            }
+            Ok(instrs)
+        }
 
         Statement::Goto(identifier) => Ok(vec![Jump(identifier)]),
         Statement::Label(identifier, statement_box) => {

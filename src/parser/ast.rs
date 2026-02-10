@@ -9,7 +9,11 @@ pub struct Program {
 
 pub struct Function {
     pub identifier: Identifier,
-    pub body: Vec<BlockItem>,
+    pub body: Block,
+}
+
+pub struct Block {
+    pub items: Vec<BlockItem>,
 }
 
 pub enum BlockItem {
@@ -20,6 +24,7 @@ pub enum BlockItem {
 pub enum Statement {
     Return(Expression),
     Expression(Expression),
+    Compound(Block),
     Goto(Identifier),
     Label(Identifier, Box<Statement>),
     If(Expression, Box<Statement>, Option<Box<Statement>>),
