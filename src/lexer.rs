@@ -7,12 +7,13 @@ Written while following the book "Writing a C Compiler" by Nora Sandler.
 
 use regex::Regex;
 use crate::compile_error::CompileError;
-use crate::lexer::TokenKind::{AddAssign, AndAssign, Assignment, Asterisk, BitwiseAnd, BitwiseComplement, BitwiseOr, CloseBrace, CloseParen, Colon, Constant, Decrement, DivAssign, Else, EqualTo, ForwardSlash, Goto, GreaterEq, GreaterThan, IdentifierToken, If, Increment, Int, LeftShift, LeftShiftAssign, LessEq, LessThan, LogicalAnd, LogicalNot, LogicalOr, Minus, ModAssign, MultiplyAssign, NotEqual, OpenBrace, OpenParen, OrAssign, Percent, Plus, QuestionMark, Return, RightShift, RightShiftAssign, Semicolon, SubtractAssign, Void, Xor, XorAssign};
+use crate::lexer::TokenKind::{AddAssign, AndAssign, Assignment, Asterisk, BitwiseAnd, BitwiseComplement, BitwiseOr, Break, Case, CloseBrace, CloseParen, Colon, Constant, Continue, Decrement, Default, DivAssign, Do, Else, EqualTo, For, ForwardSlash, Goto, GreaterEq, GreaterThan, IdentifierToken, If, Increment, Int, LeftShift, LeftShiftAssign, LessEq, LessThan, LogicalAnd, LogicalNot, LogicalOr, Minus, ModAssign, MultiplyAssign, NotEqual, OpenBrace, OpenParen, OrAssign, Percent, Plus, QuestionMark, Return, RightShift, RightShiftAssign, Semicolon, SubtractAssign, Switch, Void, While, Xor, XorAssign};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
     // keywords
-    Int, Void, Return, If, Else, Goto,
+    Int, Void, Return, If, Else, Goto, Do, While,
+    For, Break, Continue, Switch, Case, Default,
 
     // atoms
     IdentifierToken, Constant,
@@ -46,6 +47,14 @@ impl std::fmt::Display for TokenKind {
             If => "if",
             Else => "else",
             Goto => "goto",
+            Do => "do",
+            While => "while",
+            For => "for",
+            Break => "break",
+            Continue => "continue",
+            Switch => "switch",
+            Case => "case",
+            Default => "default",
 
             // atoms
             IdentifierToken => "identifier",
@@ -130,14 +139,23 @@ if an unknown token is encountered.
 pub fn lex(file: &str) -> Result<Vec<Token>, CompileError> {
     let token_defs: Vec<TokenDef> = vec![
         // keywords
-        TokenDef { kind: Int, pattern: Regex::new(r"^int\b").unwrap() },
-        TokenDef { kind: Void, pattern: Regex::new(r"^void\b").unwrap() },
-        TokenDef { kind: Return, pattern: Regex::new(r"^return\b").unwrap() },
-        TokenDef { kind: If, pattern: Regex::new(r"^if\b").unwrap() },
-        TokenDef { kind: Else, pattern: Regex::new(r"^else\b").unwrap() },
-        TokenDef { kind: Goto, pattern: Regex::new(r"^goto\b").unwrap() },
-        TokenDef { kind: IdentifierToken, pattern: Regex::new(r"^[a-zA-Z_]\w*\b").unwrap() },
-        TokenDef { kind: Constant, pattern: Regex::new(r"^[0-9]+\b").unwrap() },
+        TokenDef { kind: Int,              pattern: Regex::new(r"^int\b").unwrap() },
+        TokenDef { kind: Void,             pattern: Regex::new(r"^void\b").unwrap() },
+        TokenDef { kind: Return,           pattern: Regex::new(r"^return\b").unwrap() },
+        TokenDef { kind: If,               pattern: Regex::new(r"^if\b").unwrap() },
+        TokenDef { kind: Else,             pattern: Regex::new(r"^else\b").unwrap() },
+        TokenDef { kind: Goto,             pattern: Regex::new(r"^goto\b").unwrap() },
+        TokenDef { kind: Do,               pattern: Regex::new(r"^do\b").unwrap() },
+        TokenDef { kind: While,            pattern: Regex::new(r"^while\b").unwrap() },
+        TokenDef { kind: For,              pattern: Regex::new(r"^for\b").unwrap() },
+        TokenDef { kind: Break,            pattern: Regex::new(r"^break\b").unwrap() },
+        TokenDef { kind: Continue,         pattern: Regex::new(r"^continue\b").unwrap() },
+        TokenDef { kind: Switch,           pattern: Regex::new(r"^switch\b").unwrap() },
+        TokenDef { kind: Case,             pattern: Regex::new(r"^case\b").unwrap() },
+        TokenDef { kind: Default,          pattern: Regex::new(r"^default\b").unwrap() },
+        
+        TokenDef { kind: IdentifierToken,  pattern: Regex::new(r"^[a-zA-Z_]\w*\b").unwrap() },
+        TokenDef { kind: Constant,         pattern: Regex::new(r"^[0-9]+\b").unwrap() },
 
         // multi-char operators first
         TokenDef { kind: LeftShiftAssign,  pattern: Regex::new(r"^<<=").unwrap() },

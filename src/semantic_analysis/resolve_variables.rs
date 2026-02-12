@@ -4,9 +4,11 @@
 //
 // Jackson Eshbaugh — following "Writing a C Compiler" by Nora Sandler
 
-use std::collections::HashMap;
 use crate::compile_error::CompileError;
-use crate::parser::{Block, BlockItem, Declaration, Expression, Function, Identifier, Program, Statement};
+use crate::parser::{
+    Block, BlockItem, Declaration, Expression, ForInit, Function, Identifier, Program, Statement,
+};
+use std::collections::HashMap;
 
 // Map original source identifiers -> unique internal identifiers, scoped by block.
 type Scope = HashMap<Identifier, Identifier>;
@@ -15,7 +17,9 @@ type Scopes = Vec<Scope>;
 pub fn resolve_variables(program: Program) -> Result<Program, CompileError> {
     let mut name_gen = NameGen::new();
     let function_definition = resolve_function(program.function_definition, &mut name_gen)?;
-    Ok(Program { function_definition })
+    Ok(Program {
+        function_definition,
+    })
 }
 
 fn resolve_function(func: Function, name_gen: &mut NameGen) -> Result<Function, CompileError> {
@@ -24,7 +28,7 @@ fn resolve_function(func: Function, name_gen: &mut NameGen) -> Result<Function, 
 
     // don't push a new scope for the function body block;
     // the function-body block *is* the function scope.
-    let body = resolve_block(func.body, &mut scopes, name_gen, /*push_scope=*/false)?;
+    let body = resolve_block(func.body, &mut scopes, name_gen, /*push_scope=*/ false)?;
 
     Ok(Function {
         identifier: func.identifier,
@@ -45,8 +49,12 @@ fn resolve_block(
     let mut new_items = Vec::with_capacity(block.items.len());
     for item in block.items {
         let resolved = match item {
-            BlockItem::Declaration(d) => BlockItem::Declaration(resolve_declaration(d, scopes, name_gen)?),
-            BlockItem::Statement(s) => BlockItem::Statement(resolve_statement(s, scopes, name_gen)?),
+            BlockItem::Declaration(d) => {
+                BlockItem::Declaration(resolve_declaration(d, scopes, name_gen)?)
+            }
+            BlockItem::Statement(s) => {
+                BlockItem::Statement(resolve_statement(s, scopes, name_gen)?)
+            }
         };
         new_items.push(resolved);
     }
@@ -97,8 +105,49 @@ fn resolve_statement(
             },
         ),
 
+        Statement::While(e, body, _) => Statement::While(
+            resolve_expression(e, scopes, name_gen)?,
+            Box::new(resolve_statement(*body, scopes, name_gen)?),
+            None,
+        ),
+
+        Statement::DoWhile(body, e, _) => Statement::DoWhile(
+            Box::new(resolve_statement(*body, scopes, name_gen)?),
+            resolve_expression(e, scopes, name_gen)?,
+            None,
+        ),
+
+        Statement::For(init, o_exp1, o_exp2, body, _) => {
+            // for introduces its own scope (for the declaration!)
+            scopes.push(HashMap::new());
+
+            let init = resolve_for_init(init, scopes, name_gen)?;
+
+            let exp1 = match o_exp1 {
+                None => None,
+                Some(e) => Some(resolve_expression(e, scopes, name_gen)?),
+            };
+
+            let exp2 = match o_exp2 {
+                None => None,
+                Some(e) => Some(resolve_expression(e, scopes, name_gen)?),
+            };
+
+            let body = Box::new(resolve_statement(*body, scopes, name_gen)?);
+
+            // exited the loop; previous scope.
+            scopes.pop();
+
+            Statement::For(init, exp1, exp2, body, None)
+        }
+
+        Statement::Break(_) => Statement::Break(None),
+        Statement::Continue(_) => Statement::Continue(None),
+
         // A compound statement `{ ... }` introduces a new scope.
-        Statement::Compound(b) => Statement::Compound(resolve_block(b, scopes, name_gen, /*push_scope=*/true)?),
+        Statement::Compound(b) => Statement::Compound(resolve_block(
+            b, scopes, name_gen, /*push_scope=*/ true,
+        )?),
 
         // Labels/goto live in a separate namespace from variables.
         Statement::Goto(id) => Statement::Goto(id),
@@ -108,8 +157,41 @@ fn resolve_statement(
             Statement::Label(id, Box::new(stmt))
         }
 
+        Statement::Switch(exp, b_stmt, meta) => Statement::Switch(
+            resolve_expression(exp, scopes, name_gen)?,
+            Box::new(resolve_statement(*b_stmt, scopes, name_gen)?),
+            meta,
+        ),
+
+        Statement::Case(i, lbl, b_stmt) => Statement::Case(
+            i,
+            lbl,
+            Box::new(resolve_statement(*b_stmt, scopes, name_gen)?),
+        ),
+
+        Statement::Default(lbl, b_stmt) => Statement::Default(
+            lbl,
+            Box::new(resolve_statement(*b_stmt, scopes, name_gen)?),
+        ),
+
         Statement::Null => Statement::Null,
     })
+}
+
+fn resolve_for_init(
+    f: ForInit,
+    scopes: &mut Scopes,
+    name_gen: &mut NameGen,
+) -> Result<ForInit, CompileError> {
+    match f {
+        ForInit::InitExpression(None) => Ok(ForInit::InitExpression(None)),
+        ForInit::InitExpression(Some(exp)) => Ok(ForInit::InitExpression(Some(
+            resolve_expression(exp, scopes, name_gen)?,
+        ))),
+        ForInit::InitDeclaration(dec) => Ok(ForInit::InitDeclaration(resolve_declaration(
+            dec, scopes, name_gen,
+        )?)),
+    }
 }
 
 fn resolve_expression(
@@ -152,8 +234,12 @@ fn resolve_expression(
 
         Expression::PreInc(inner) => Expression::PreInc(Box::new(resolve_lvalue(*inner, scopes)?)),
         Expression::PreDec(inner) => Expression::PreDec(Box::new(resolve_lvalue(*inner, scopes)?)),
-        Expression::PostInc(inner) => Expression::PostInc(Box::new(resolve_lvalue(*inner, scopes)?)),
-        Expression::PostDec(inner) => Expression::PostDec(Box::new(resolve_lvalue(*inner, scopes)?)),
+        Expression::PostInc(inner) => {
+            Expression::PostInc(Box::new(resolve_lvalue(*inner, scopes)?))
+        }
+        Expression::PostDec(inner) => {
+            Expression::PostDec(Box::new(resolve_lvalue(*inner, scopes)?))
+        }
     })
 }
 
@@ -189,7 +275,11 @@ fn lookup(id: &Identifier, scopes: &Scopes) -> Option<Identifier> {
 
 /// Declare an identifier in the current (innermost) scope, generating a unique internal name.
 /// Shadowing across scopes is allowed; duplicates *within the same scope* are rejected.
-fn declare(id: Identifier, scopes: &mut Scopes, name_gen: &mut NameGen) -> Result<Identifier, CompileError> {
+fn declare(
+    id: Identifier,
+    scopes: &mut Scopes,
+    name_gen: &mut NameGen,
+) -> Result<Identifier, CompileError> {
     let cur = scopes
         .last_mut()
         .expect("Scopes stack should always have at least one scope");

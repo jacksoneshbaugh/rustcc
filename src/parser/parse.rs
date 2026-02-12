@@ -1,9 +1,10 @@
 use crate::compile_error::CompileError;
-use crate::lexer::TokenKind::{CloseBrace, CloseParen, Colon, IdentifierToken, Int, OpenBrace, OpenParen, QuestionMark, Semicolon, Void};
+use crate::lexer::TokenKind::{CloseBrace, CloseParen, Colon, IdentifierToken, Int, OpenBrace, OpenParen, QuestionMark, Semicolon, Void, While};
 use crate::lexer::{Token, TokenKind};
-use crate::parser::{AssignOp, BinaryOperator, Block, BlockItem, Declaration, Expression, Function, Identifier, Program, Statement, UnaryOperator};
-use std::collections::VecDeque;
 use crate::parser::Expression::Ternary;
+use crate::parser::Statement::DoWhile;
+use crate::parser::{AssignOp, BinaryOperator, Block, BlockItem, Declaration, Expression, ForInit, Function, Identifier, Program, Statement, UnaryOperator};
+use std::collections::VecDeque;
 
 /**
 Entry point for parsing. Uses recursive descent.
@@ -109,6 +110,11 @@ fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Statement, CompileErr
     // <statement> ::= "return" <exp> ";"
     //               | <exp> ";"
     //               | "if" "(" <exp> ")" <statement> [ "else" <statement> ]
+    //               | "break" ";"
+    //               | "continue" ";"
+    //               | "while" "(" <expresion> ")" <statement>
+    //               | "do" <statement> "while" "(" <expression> ")" ";"
+    //               | "for" "(" <for-init> [ <expression> ] ";" [ <expression> ] ")" <statement>
     //               | "goto" <identifier> ";"
     //               | <block>
     //               | ";"
@@ -135,6 +141,18 @@ fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Statement, CompileErr
             Ok(Statement::Null)
         },
 
+        Some(TokenKind::Break) => {
+            tokens.pop_front();
+            expect(Semicolon, tokens)?;
+            Ok(Statement::Break(None))
+        },
+
+        Some(TokenKind::Continue) => {
+            tokens.pop_front();
+            expect(Semicolon, tokens)?;
+            Ok(Statement::Continue(None))
+        },
+
         Some(TokenKind::If) => {
           tokens.pop_front(); // get rid of the "if"
             expect(OpenParen, tokens)?;
@@ -154,7 +172,59 @@ fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Statement, CompileErr
 
         },
 
-        Some(TokenKind::OpenBrace) => Ok(Statement::Compound(parse_block(tokens)?)),
+        Some(TokenKind::While) => {
+            tokens.pop_front();                                          // while
+            expect(OpenParen, tokens)?;                                         // (
+            let condition = parse_expression(tokens, 0)?;    // <expression>
+            expect(CloseParen, tokens)?;                                        // )
+            let stmt = parse_statement(tokens)?;                      // <statement>
+
+            Ok(Statement::While(condition, Box::new(stmt), None))
+        },
+
+        Some(TokenKind::Do) => {
+            tokens.pop_front();                                          // do
+            let stmt = parse_statement(tokens)?;                      // <statement>
+            expect(While, tokens)?;                                             // while
+            expect(OpenParen, tokens)?;                                         // (
+            let condition = parse_expression(tokens, 0)?;    // <expresson>
+            expect(CloseParen, tokens)?;                                        // )
+            expect(Semicolon, tokens)?;                                         // ;
+
+            Ok(DoWhile(Box::new(stmt), condition, None))
+        },
+
+        Some(TokenKind::For) => {
+            tokens.pop_front();                                         // for
+            expect(OpenParen, tokens)?;                                        // (
+            let for_init = parse_for_init(tokens)?;                     // <for init>
+
+            // condition
+            let exp1 =
+                if tokens.front().map(|t| t.kind) == Some(Semicolon) {
+                None
+            } else {
+                Some(parse_expression(tokens, 0)?)
+            };
+
+            expect(Semicolon, tokens)?;
+
+            // post
+            let exp2 =
+                if tokens.front().map(|t| t.kind) == Some(CloseParen) {
+                None
+            } else {
+                Some(parse_expression(tokens, 0)?)
+            };
+
+            expect(CloseParen, tokens)?;
+
+            let stmt = parse_statement(tokens)?;
+            
+            Ok(Statement::For(for_init, exp1, exp2, Box::new(stmt), None))
+        }
+
+        Some(OpenBrace) => Ok(Statement::Compound(parse_block(tokens)?)),
 
         Some(TokenKind::Goto) => {
             // goto <identifier>;
@@ -165,6 +235,34 @@ fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Statement, CompileErr
 
             Ok(Statement::Goto(ident))
         },
+
+        Some(TokenKind::Switch) => {
+            tokens.pop_front();
+            expect(OpenParen, tokens)?;
+            let condition = parse_expression(tokens, 0)?;
+            expect(CloseParen, tokens)?;
+            let stmt = parse_statement(tokens)?;
+
+            Ok(Statement::Switch(condition, Box::new(stmt), None))
+        }
+
+        Some(TokenKind::Case) => {
+            tokens.pop_front();
+            let constant = parse_int(tokens)?;
+
+            expect(Colon, tokens)?;
+
+            let stmt = parse_statement(tokens)?;
+            Ok(Statement::Case(constant, None, Box::new(stmt)))
+
+        }
+
+        Some(TokenKind::Default) => {
+            tokens.pop_front();
+            expect(Colon, tokens)?;
+            let stmt = parse_statement(tokens)?;
+            Ok(Statement::Default(None, Box::new(stmt)))
+        }
 
         Some(_) => {
             let e = parse_expression(tokens, 0)?;
@@ -258,6 +356,25 @@ fn parse_expression(tokens: &mut VecDeque<Token>, min_prec: i32) -> Result<Expre
     }
 
     Ok(left)
+}
+
+fn parse_for_init(tokens: &mut VecDeque<Token>) -> Result<ForInit, CompileError> {
+    // <for init> ::= <declaration> | [ <exp> ] ";"
+
+    match tokens.front().map(|t| t.kind) {
+        Some(Int) => Ok(ForInit::InitDeclaration(parse_declaration(tokens)?)),
+        Some(Semicolon) => {
+            expect(Semicolon, tokens)?; // pop semicolon
+            Ok(ForInit::InitExpression(None))
+        },
+        Some(_) => {
+            let expr = parse_expression(tokens, 0)?;
+            expect(Semicolon, tokens)?;
+            Ok(ForInit::InitExpression(Some(expr)))
+        },
+        None => Err(CompileError::Syntax("Expected loop parameters, got EOF.".to_string())),
+    }
+
 }
 
 fn precedence(token: &Token) -> Option<i32> {
@@ -451,8 +568,6 @@ Parses an integer constant. Expects the next token to be the integer constant.
 Returns the i32.
 */
 fn parse_int(tokens: &mut VecDeque<Token>) -> Result<i32, CompileError> {
-    // <int> ::= a constant token
-
     let token = tokens.pop_front().ok_or_else(|| {
         CompileError::Syntax("Unexpected end of tokens.".to_string())
     })?;
@@ -461,9 +576,25 @@ fn parse_int(tokens: &mut VecDeque<Token>) -> Result<i32, CompileError> {
         CompileError::Syntax("Expected CONSTANT token to have a value, but found none.".to_string())
     })?;
 
-    raw.parse::<i32>().map_err(|_| {
-        CompileError::Syntax("Expected integer constant, but failed to parse.".to_string())
-    })
+    // C integer literals: 0x... (hex), 0... (octal), otherwise decimal.
+    let s = raw.trim();
+
+    let parsed: i32 = if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        i32::from_str_radix(hex, 16).map_err(|_| {
+            CompileError::Syntax(format!("Invalid hex integer literal '{}'.", s))
+        })?
+    } else if s.len() > 1 && s.starts_with('0') {
+        // treat as octal (C rule for leading-0 integer constants)
+        i32::from_str_radix(&s[1..], 8).map_err(|_| {
+            CompileError::Syntax(format!("Invalid octal integer literal '{}'.", s))
+        })?
+    } else {
+        s.parse::<i32>().map_err(|_| {
+            CompileError::Syntax(format!("Invalid decimal integer literal '{}'.", s))
+        })?
+    };
+
+    Ok(parsed)
 }
 
 fn parse_identifier(tokens: &mut VecDeque<Token>) -> Result<Identifier, CompileError> {

@@ -21,6 +21,12 @@ pub enum BlockItem {
     Declaration(Declaration),
 }
 
+pub struct SwitchMeta {
+    pub break_label: Identifier,
+    pub cases: Vec<(i32, Identifier)>,
+    pub default: Option<Identifier>,
+}
+
 pub enum Statement {
     Return(Expression),
     Expression(Expression),
@@ -28,7 +34,20 @@ pub enum Statement {
     Goto(Identifier),
     Label(Identifier, Box<Statement>),
     If(Expression, Box<Statement>, Option<Box<Statement>>),
+    Break(Option<Identifier>),
+    Continue(Option<Identifier>),
+    While(Expression, Box<Statement>, Option<Identifier>),
+    DoWhile(Box<Statement>, Expression, Option<Identifier>),
+    For(ForInit, Option<Expression>, Option<Expression>, Box<Statement>, Option<Identifier>),
+    Switch(Expression, Box<Statement>, Option<SwitchMeta>),
+    Case(i32, Option<Identifier>, Box<Statement>),
+    Default(Option<Identifier>, Box<Statement>),
     Null
+}
+
+pub enum ForInit {
+    InitExpression(Option<Expression>),
+    InitDeclaration(Declaration),
 }
 
 pub enum Declaration {

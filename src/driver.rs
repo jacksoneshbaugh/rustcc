@@ -129,18 +129,21 @@ pub fn compile_file(input: &Path, flags: DriverFlags) -> Result<(DriverStop, Com
     let label_resolved_program = semantic_analysis::resolve_labels(var_resolved_program)
         .map_err(|e| format!("Failed to resolve program.\n{e}"))?;
 
+    let controlflow_resolved_program = semantic_analysis::resolve_control_flow(label_resolved_program)
+        .map_err(|e| format!("Failed to resolve program.\n{e}"))?;
+
     if flags.verbose {
         eprintln!("Semantic analysis completed successfully.");
     }
 
     if flags.validate {
-        println!("{label_resolved_program}");
+        println!("{controlflow_resolved_program}");
         cleanup(&paths, flags.keep_temps)?;
         return Ok((DriverStop::StoppedAfterValidation, paths));
     }
 
     // ---- TACKY ----
-    let tacky_prog = tacky::tackify(label_resolved_program)
+    let tacky_prog = tacky::tackify(controlflow_resolved_program)
         .map_err(|e| format!("TACKY lowering failed.\n{e}"))?;
 
     if flags.verbose {

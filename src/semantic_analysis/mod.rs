@@ -1,5 +1,7 @@
-mod variable_resolution;
-mod label_resolution;
+mod resolve_variables;
+mod resolve_labels;
+mod resolve_control_flow;
 
-pub use variable_resolution::*;
-pub use label_resolution::*;
+pub use resolve_variables::*;
+pub use resolve_labels::*;
+pub use resolve_control_flow::*;

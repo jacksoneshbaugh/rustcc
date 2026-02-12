@@ -62,8 +62,36 @@ fn collect_labels_stmt(
 
         Statement::Compound(block) => collect_labels_block(block, defined),
 
+        Statement::While(_exp, body, _) => {
+            collect_labels_stmt(body, defined)?;
+            Ok(())
+        }
+        Statement::DoWhile(body, _exp, _) => {
+            collect_labels_stmt(body, defined)?;
+            Ok(())
+        }
+        Statement::For(_init, _exp1, _exp2, body, _) => {
+            collect_labels_stmt(body, defined)?;
+            Ok(())
+        },
+
+        Statement::Switch(_exp, b_stmt, _o_ident) => {
+            collect_labels_stmt(b_stmt, defined)?;
+            Ok(())
+        }
+
+        Statement::Case(_i, _ident, b_stmt) => {
+            collect_labels_stmt(b_stmt, defined)?;
+            Ok(())
+        }
+        Statement::Default(_ident, stmt) => {
+            collect_labels_stmt(stmt, defined)?;
+            Ok(())
+        }
+
         // base cases
-        Statement::Goto(_) | Statement::Return(_) | Statement::Expression(_) | Statement::Null => Ok(()),
+        Statement::Goto(_) | Statement::Return(_) | Statement::Expression(_) | Statement::Break(_)
+        | Statement::Continue(_) | Statement::Null => Ok(()),
     }
 }
 
@@ -114,6 +142,34 @@ fn validate_gotos_stmt(
 
         Statement::Compound(block) => validate_gotos_block(block, defined),
 
-        Statement::Return(_) | Statement::Expression(_) | Statement::Null => Ok(()),
+        Statement::While(_exp, body, _) => {
+            validate_gotos_stmt(body, defined)?;
+            Ok(())
+        }
+        Statement::DoWhile(body, _exp, _) => {
+            validate_gotos_stmt(body, defined)?;
+            Ok(())
+        }
+        Statement::For(_init, _exp1, _exp2, body, _) => {
+            validate_gotos_stmt(body, defined)?;
+            Ok(())
+        }
+
+        Statement::Switch(_exp, b_stmt, _o_ident) => {
+            validate_gotos_stmt(b_stmt, defined)?;
+            Ok(())
+        }
+
+        Statement::Case(_i, _ident, b_stmt) => {
+            validate_gotos_stmt(b_stmt, defined)?;
+            Ok(())
+        }
+        Statement::Default(_ident, stmt) => {
+            validate_gotos_stmt(stmt, defined)?;
+            Ok(())
+        }
+
+        Statement::Continue(_) | Statement::Break(_) | Statement::Return(_) | Statement::Expression(_)
+        | Statement::Null => Ok(()),
     }
 }

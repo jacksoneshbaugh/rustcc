@@ -1,8 +1,8 @@
 use crate::compile_error::CompileError;
 use crate::parser::BinaryOperator::{Add, BitwiseAnd, BitwiseOr, Divide, LeftShift, Multiply, Remainder, RightShift, Subtract, Xor};
-use crate::parser::{AssignOp, BinaryOperator, BlockItem, Declaration, Expression, Function, Identifier, Program, Statement};
+use crate::parser::{AssignOp, BinaryOperator, BlockItem, Declaration, Expression, ForInit, Function, Identifier, Program, Statement};
 use crate::tacky::ast::{TACKYFunction, TACKYInstruction, TACKYPlace, TACKYProgram, TACKYValue};
-use crate::tacky::TACKYInstruction::{Binary, Copy, Jump, JumpIfZero, Label};
+use crate::tacky::TACKYInstruction::{Binary, Copy, Jump, JumpIfNotZero, JumpIfZero, Label};
 use crate::tacky::TACKYValue::Variable;
 
 /**
@@ -85,7 +85,10 @@ fn tackify_block_item(parsed_block_item: BlockItem, allocator: &mut TempAllocato
     }
 }
 
-fn tackify_statement(parsed_stmt: Statement, allocator: &mut TempAllocator) -> Result<Vec<TACKYInstruction>, CompileError> {
+fn tackify_statement(
+    parsed_stmt: Statement,
+    allocator: &mut TempAllocator
+) -> Result<Vec<TACKYInstruction>, CompileError> {
     match parsed_stmt {
         Statement::Expression(e) => {
             let (instrs, _result) = tackify_expression(e, allocator)?;
@@ -151,7 +154,264 @@ fn tackify_statement(parsed_stmt: Statement, allocator: &mut TempAllocator) -> R
             instrs.push(TACKYInstruction::Return(val));
             Ok(instrs)
         },
-        Statement::Null => Ok(vec![])
+        Statement::Null => Ok(vec![]),
+
+        Statement::Break(label) => {
+            match label {
+                None => unreachable!("TACKY lowering failed."),
+                Some(lbl) => {
+                    Ok(vec![TACKYInstruction::Jump(
+                        Identifier {
+                            name: String::from("break_") + lbl.name.as_str()
+                        }
+                    )])
+                }
+            }
+        }
+
+        Statement::Continue(label) => {
+            match label {
+                None => unreachable!("TACKY lowering failed."),
+                Some(lbl) => {
+                    Ok(vec![TACKYInstruction::Jump(
+                        Identifier {
+                            name: String::from("continue_") + lbl.name.as_str()
+                        }
+                    )])
+                }
+            }
+        }
+
+        Statement::While(cond, body, label) => {
+            match label {
+                None => unreachable!("TACKY lowering failed."),
+                Some(lbl) => {
+
+                    let mut instrs: Vec<TACKYInstruction> = Vec::new();
+
+                    instrs.push(Label(
+                        Identifier{
+                            name: String::from("continue_") + lbl.name.as_str()
+                        })
+                    );
+
+                    let (mut instrs_cond, result) = tackify_expression(cond, allocator)?;
+                    let v = allocator.new_place();
+
+                    instrs.append(&mut instrs_cond);
+                    instrs.push(Copy(
+                        result.clone(),
+                        v.clone()
+                    ));
+
+                    instrs.push(JumpIfZero(Variable(v.clone().0), Identifier {
+                        name: String::from("break_") + lbl.name.as_str()
+                    }));
+
+                    instrs.append(&mut tackify_statement(*body, allocator)?);
+
+                    instrs.push(Jump(
+                       Identifier {
+                           name: String::from("continue_") + lbl.name.as_str()
+                       }
+                    ));
+
+                    instrs.push(Label(
+                        Identifier {
+                            name: String::from("break_") + lbl.name.as_str()
+                        }
+                    ));
+
+                    Ok(instrs)
+                }
+            }
+        }
+
+        Statement::DoWhile(body, cond, label) => {
+            match label {
+                None => unreachable!("TACKY lowering failed."),
+                Some(lbl) => {
+
+                    let mut instrs: Vec<TACKYInstruction> = Vec::new();
+                    instrs.push(Label(Identifier {
+                        name: String::from("start_") + lbl.name.as_str()
+                    }));
+
+                    instrs.append(&mut tackify_statement(*body, allocator)?);
+                    instrs.push(Label(
+                        Identifier{
+                            name: String::from("continue_") + lbl.name.as_str()
+                        })
+                    );
+
+                    let (mut instrs_cond, result) = tackify_expression(cond, allocator)?;
+                    let v = allocator.new_place();
+
+                    instrs.append(&mut instrs_cond);
+                    instrs.push(Copy(
+                        result.clone(),
+                        v.clone()
+                    ));
+                    instrs.push(JumpIfNotZero(Variable(v.clone().0), Identifier {
+                        name: String::from("start_") + lbl.name.as_str()
+                    }));
+
+                    instrs.push(Label(
+                        Identifier {
+                            name: String::from("break_") + lbl.name.as_str()
+                        }
+                    ));
+
+                    Ok(instrs)
+                }
+            }
+        }
+
+        Statement::For(init, condition, post,
+                       body, label) => {
+
+            let mut instrs = vec![];
+
+            match label {
+                None => unreachable!("TACKY lowering failed."),
+                Some(lbl) => {
+
+                    // init
+                    match init {
+                        ForInit::InitDeclaration(declaration) => {
+                            match declaration {
+                                Declaration::Declaration(_identifier, None) => (),
+                                Declaration::Declaration(identifier, Some(expression)) => {
+                                    let place = TACKYPlace(identifier);
+                                    let (mut instrs_init, rhs) = tackify_expression(expression, allocator)?;
+                                    instrs.append(&mut instrs_init);
+                                    instrs.push(Copy(rhs.clone(), place.clone()));
+                                }
+                            }
+                        }
+
+                        ForInit::InitExpression(None) => (),
+                        ForInit::InitExpression(Some(exp)) => {
+                            let (mut instrs_init, _val) = tackify_expression(exp, allocator)?;
+                            instrs.append(&mut instrs_init);
+                        }
+                    }
+
+                    instrs.push(Label(
+                        Identifier {
+                            name: String::from("start_") + lbl.name.as_str()
+                        }
+                    ));
+
+                    // condition
+
+                    match condition {
+                        None => (),
+                        Some(cond) => {
+                            let (mut instrs_cond, result) = tackify_expression(cond, allocator)?;
+                            instrs.append(&mut instrs_cond);
+                            let v = allocator.new_place();
+                            instrs.push(Copy(result.clone(), v.clone()));
+                            instrs.push(JumpIfZero(Variable(v.clone().0), Identifier {
+                                name: String::from("break_") + lbl.name.as_str()
+                            }));
+                        }
+                    }
+
+                    instrs.append(&mut tackify_statement(*body, allocator)?);
+                    instrs.push(Label(
+                        Identifier {
+                            name: String::from("continue_") + lbl.name.as_str()
+                        }
+                    ));
+
+                    // post
+                    match post {
+
+                        None => (),
+                        Some(post) => {
+                            let (mut instrs_post, _result) = tackify_expression(post, allocator)?;
+                            instrs.append(&mut instrs_post);
+                        }
+
+                    }
+
+                    instrs.push(Jump(Identifier {
+                        name: String::from("start_") + lbl.name.as_str()
+                    }));
+                    instrs.push(Label(
+                        Identifier {
+                            name: String::from("break_") + lbl.name.as_str()
+                        }
+                    ));
+
+                    Ok(instrs)
+                }
+            }
+
+        }
+
+        Statement::Switch(exp, body, Some(meta)) => {
+            let mut instrs = vec![];
+
+            // eval scrutinee once
+            let (mut exp_is, exp_v) = tackify_expression(exp, allocator)?;
+            instrs.append(&mut exp_is);
+
+            let scrut = allocator.new_place();
+            instrs.push(Copy(exp_v, scrut.clone()));
+
+            // dispatch: for each case constant, if scrut == k jump to its label
+            for (k, case_lbl) in &meta.cases {
+                let cmp_out = allocator.new_place();
+                instrs.push(Binary(
+                    BinaryOperator::Equal,
+                    TACKYValue::Variable(scrut.0.clone()),
+                    TACKYValue::Constant(*k),
+                    cmp_out.clone(),
+                ));
+                instrs.push(JumpIfNotZero(
+                    TACKYValue::Variable(cmp_out.0.clone()),
+                    case_lbl.clone(),
+                ));
+            }
+
+            // if no case matched, jump to default if present, else to break
+            match &meta.default {
+                Some(def_lbl) => instrs.push(Jump(def_lbl.clone())),
+                None => instrs.push(Jump(Identifier {
+                    name: format!("break_{}", meta.break_label.name),
+                })),
+            }
+
+            // body (contains Case/Default labels as statements)
+            instrs.append(&mut tackify_statement(*body, allocator)?);
+
+            // break target
+            instrs.push(Label(Identifier {
+                name: format!("break_{}", meta.break_label.name),
+            }));
+
+            Ok(instrs)
+        }
+
+        Statement::Switch(_exp, _body, None) => unreachable!("TACKY lowering failed."),
+
+        Statement::Case(_k, Some(case_lbl), stmt) => {
+            let mut instrs = vec![Label(case_lbl)];
+            instrs.append(&mut tackify_statement(*stmt, allocator)?);
+            Ok(instrs)
+        }
+
+        Statement::Case(_, None, _) => unreachable!("TACKY lowering failed."),
+
+        Statement::Default(Some(def_lbl), stmt) => {
+            let mut instrs = vec![Label(def_lbl)];
+            instrs.append(&mut tackify_statement(*stmt, allocator)?);
+            Ok(instrs)
+        }
+
+        Statement::Default(None, _) => unreachable!("TACKY lowering failed."),
     }
 }
 
